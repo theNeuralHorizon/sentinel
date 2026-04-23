@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-typecheck:
+    name: Lint + Typecheck (TS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: 1.3 }
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile || bun install
+
+      - name: Typecheck packages
+        run: |
+          bun --cwd packages/shared typecheck
+          bun --cwd packages/ai typecheck
+          bun --cwd packages/db typecheck
+
+      - name: Typecheck apps
+        run: |
+          bun --cwd apps/api typecheck
+          bun --cwd apps/analyzer typecheck
+          bun --cwd apps/cli typecheck
+
+      - name: Prettier
+        run: bun x prettier --check "**/*.{ts,tsx,svelte,json,md}"
+        continue-on-error: true
+
+  unit-tests-bun:
+    name: Unit tests (Bun)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: 1.3 }
+      - run: bun install --frozen-lockfile || bun install
+      - run: bun test packages/shared packages/ai apps/api apps/cli
+
+  unit-tests-go:
+    name: Unit tests (Go scanner)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.22" }
+      - name: Test scanner
+        working-directory: apps/scanner
+        run: |
+          go mod download || true
+          go vet ./...
+          go test -race -v ./...
+
+  build-images:
+    name: Build container images
+    runs-on: ubuntu-latest
+    needs: [lint-and-typecheck, unit-tests-bun, unit-tests-go]
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api, analyzer, scanner, web]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/${{ matrix.service }}.Dockerfile
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/sentinel-${{ matrix.service }}:latest
+            ghcr.io/${{ github.repository_owner }}/sentinel-${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  integration:
+    name: Integration (Postgres + Scanner)
+    runs-on: ubuntu-latest
+    needs: unit-tests-bun
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: sentinel
+          POSTGRES_PASSWORD: sentinel
+          POSTGRES_DB: sentinel
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://sentinel:sentinel@localhost:5432/sentinel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: 1.3 }
+      - run: bun install --frozen-lockfile || bun install
+      - name: Apply initial schema
+        run: |
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          PGPASSWORD=sentinel psql -h localhost -U sentinel -d sentinel -f packages/db/migrations/0000_init.sql
+      - name: Seed
+        run: bun run scripts/seed.ts

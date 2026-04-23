@@ -1,0 +1,87 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "17 7 * * *"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  trivy-fs:
+    name: Filesystem scan (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aquasecurity/trivy-action@0.29.0
+        with:
+          scan-type: fs
+          scan-ref: "."
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-fs.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with: { sarif_file: trivy-fs.sarif }
+
+  osv-scanner:
+    name: OSV Scanner (deps)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google/osv-scanner-action/osv-scanner-action@v1.9.2
+        with: { scan-args: "-r ." }
+
+  codeql:
+    name: CodeQL (JavaScript/TypeScript + Go)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, go]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with: { languages: ${{ matrix.language }} }
+      - uses: github/codeql-action/analyze@v3
+        with: { category: "/language:${{ matrix.language }}" }
+
+  sbom:
+    name: Generate & attest SBOM
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syft
+        uses: anchore/sbom-action@v0
+        with:
+          path: "."
+          format: cyclonedx-json
+          output-file: sentinel-sbom.cdx.json
+      - uses: actions/attest-sbom@v2
+        with:
+          subject-path: "."
+          sbom-path: sentinel-sbom.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sentinel-sbom
+          path: sentinel-sbom.cdx.json

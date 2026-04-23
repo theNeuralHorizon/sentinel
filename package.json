@@ -1,0 +1,55 @@
+{
+  "name": "sentinel",
+  "version": "0.1.0",
+  "description": "AI-Native Software Supply Chain Security with Autonomous Remediation",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter '*' dev",
+    "build": "bun run --filter '*' build",
+    "test": "bun run --filter '*' test",
+    "lint": "bun run --filter '*' lint",
+    "typecheck": "bun run --filter '*' typecheck",
+    "db:generate": "bun --cwd packages/db generate",
+    "db:migrate": "bun --cwd packages/db migrate",
+    "db:push": "bun --cwd packages/db push",
+    "format": "bun x prettier --write \"**/*.{ts,tsx,svelte,json,md}\"",
+    "stack:up": "docker compose up -d",
+    "stack:down": "docker compose down",
+    "stack:logs": "docker compose logs -f"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.0",
+    "prettier": "^3.4.0",
+    "prettier-plugin-svelte": "^3.3.0",
+    "prettier-plugin-tailwindcss": "^0.6.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "bun": ">=1.3.0",
+    "node": ">=20.0.0"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/theNeuralHorizon/sentinel.git"
+  },
+  "keywords": [
+    "sbom",
+    "supply-chain",
+    "security",
+    "ai",
+    "agentic",
+    "cve",
+    "vulnerability",
+    "compliance",
+    "cra",
+    "eo14028",
+    "ml-bom",
+    "ai-bom"
+  ]
+}

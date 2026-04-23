@@ -1,0 +1,52 @@
+{
+  "name": "sentinel-notify_slack",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sentinel-notify_slack",
+        "responseMode": "responseNode"
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json;\nconst params = body.parameters || {};\nconst text = `:shield: *Sentinel alert*\\n*Advisory:* ${body.advisoryId || '—'}\\n*Kind:* ${body.kind}\\n*Reasoning:* ${body.reasoning || 'n/a'}`;\nreturn [{ json: { channel: params.channel || '#security-alerts', text } }];"
+      },
+      "name": "Format message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "accessToken",
+        "channel": "={{$json.channel}}",
+        "text": "={{$json.text}}"
+      },
+      "name": "Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"dispatched\" }"
+      },
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [860, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Format message", "type": "main", "index": 0 }]] },
+    "Format message": { "main": [[{ "node": "Slack", "type": "main", "index": 0 }]] },
+    "Slack": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+  },
+  "active": false
+}

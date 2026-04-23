@@ -1,0 +1,26 @@
+Sentinel has been installed.
+
+  Release:   {{ .Release.Name }}
+  Namespace: {{ .Release.Namespace }}
+
+Next steps:
+
+  1. Check pod health:
+     kubectl get pods -n {{ .Release.Namespace }}
+
+  2. Run the DB migration (first install only):
+     kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "sentinel.fullname" . }}-api -- \
+       bun run packages/db/src/migrate.ts
+
+  3. Open the dashboard:
+{{- if .Values.ingress.enabled }}
+     https://{{ .Values.ingress.host }}
+{{- else }}
+     kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "sentinel.fullname" . }}-web 3000:3000
+     http://localhost:3000
+{{- end }}
+
+  4. Trigger a scan via the API or CLI:
+     sentinel-cli scan ./my-project --api https://{{ .Values.ingress.host | default "localhost:4000" }}
+
+Docs: https://github.com/theNeuralHorizon/sentinel/tree/main/docs

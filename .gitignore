@@ -1,0 +1,85 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+bun.lockb
+.bun/
+
+# Build outputs
+dist/
+build/
+.next/
+.nuxt/
+.output/
+.svelte-kit/
+out/
+target/
+*.tsbuildinfo
+
+# Go
+apps/scanner/bin/
+vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Runtime
+logs/
+*.log
+npm-debug.log*
+bun-debug.log*
+coverage/
+.nyc_output/
+
+# Editor
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/data/
+
+# Secrets
+*.pem
+*.key
+*.crt
+secrets/
+!secrets/.gitkeep
+
+# Database
+*.db
+*.sqlite
+data/postgres/
+data/dragonfly/
+data/nats/
+data/minio/
+
+# Temp
+.turbo/
+.cache/
+tmp/
+temp/
+
+# AI artifacts
+.anthropic/
+embeddings-cache/
+
+# SBOM outputs
+*.spdx.json
+*.cdx.json
+sbom-output/

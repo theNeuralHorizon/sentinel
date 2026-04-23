@@ -1,0 +1,12 @@
+apiVersion: v2
+name: sentinel
+description: AI-Native Software Supply Chain Security with Autonomous Remediation
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords: [sbom, supply-chain, security, ai, agentic, cve]
+home: https://github.com/theNeuralHorizon/sentinel
+sources:
+  - https://github.com/theNeuralHorizon/sentinel
+maintainers:
+  - name: theNeuralHorizon

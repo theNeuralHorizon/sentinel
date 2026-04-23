@@ -1,0 +1,17 @@
+{
+  "name": "@sentinel/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": { "sentinel-cli": "./src/index.ts" },
+  "scripts": {
+    "build": "bun build ./src/index.ts --compile --outfile ./dist/sentinel-cli",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sentinel/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

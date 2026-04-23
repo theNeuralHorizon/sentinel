@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinel-postgres
+  namespace: sentinel
+spec:
+  selector: { app: sentinel-postgres }
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: sentinel-postgres
+  namespace: sentinel
+spec:
+  serviceName: sentinel-postgres
+  replicas: 1
+  selector:
+    matchLabels: { app: sentinel-postgres }
+  template:
+    metadata:
+      labels: { app: sentinel-postgres }
+    spec:
+      securityContext:
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg17
+          ports: [{ containerPort: 5432 }]
+          env:
+            - { name: POSTGRES_USER, value: sentinel }
+            - { name: POSTGRES_PASSWORD, value: sentinel }
+            - { name: POSTGRES_DB, value: sentinel }
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", "sentinel"] }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits:   { cpu: "2",   memory: 2Gi }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources: { requests: { storage: 20Gi } }

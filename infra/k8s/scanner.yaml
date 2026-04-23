@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinel-scanner
+  namespace: sentinel
+spec:
+  selector: { app: sentinel-scanner }
+  ports: [{ port: 4100, targetPort: 4100 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentinel-scanner
+  namespace: sentinel
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: sentinel-scanner }
+  template:
+    metadata:
+      labels: { app: sentinel-scanner }
+    spec:
+      containers:
+        - name: scanner
+          image: ghcr.io/theneuralhorizon/sentinel-scanner:latest
+          imagePullPolicy: IfNotPresent
+          ports: [{ containerPort: 4100 }]
+          envFrom:
+            - configMapRef: { name: sentinel-config }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 4100 }
+            initialDelaySeconds: 3
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { cpu: "2",  memory: 1Gi }
+          volumeMounts:
+            - { name: work, mountPath: /tmp/sentinel-scans }
+      volumes:
+        - name: work
+          emptyDir: { sizeLimit: 5Gi }

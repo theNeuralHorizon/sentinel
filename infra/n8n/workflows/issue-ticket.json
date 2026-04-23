@@ -1,0 +1,61 @@
+{
+  "name": "sentinel-issue_ticket",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sentinel-issue_ticket",
+        "responseMode": "responseNode"
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json;\nconst params = body.parameters || {};\nconst title = `[Sentinel] ${body.advisoryId || 'supply-chain-risk'} — ${body.kind}`;\nreturn [{ json: { title, body: `Sentinel proposed a manual-review remediation.\\n\\n**Vulnerability:** ${body.vulnerabilityId}\\n**Severity:** ${params.severity || 'unknown'}\\n**Reasoning:** ${body.reasoning || ''}\\n\\n-- automated via sentinel` , labels: params.labels || ['security', 'supply-chain'] } }];"
+      },
+      "name": "Prepare issue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.github.com/repos/theNeuralHorizon/sentinel-demo/issues",
+        "method": "POST",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "title", "value": "={{$json.title}}" },
+            { "name": "body", "value": "={{$json.body}}" },
+            { "name": "labels", "value": "={{$json.labels}}" }
+          ]
+        }
+      },
+      "name": "GitHub Create Issue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"dispatched\", \"issue\": $json.html_url }"
+      },
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [860, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Prepare issue", "type": "main", "index": 0 }]] },
+    "Prepare issue": { "main": [[{ "node": "GitHub Create Issue", "type": "main", "index": 0 }]] },
+    "GitHub Create Issue": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+  },
+  "active": false
+}

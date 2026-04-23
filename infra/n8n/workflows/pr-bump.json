@@ -1,0 +1,64 @@
+{
+  "name": "sentinel-pr_bump",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "sentinel-pr_bump",
+        "responseMode": "responseNode"
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [200, 300],
+      "webhookId": "sentinel-pr-bump"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json;\nconst params = body.parameters || {};\nconst targetVersion = params.target_version || 'latest';\nreturn [{ json: { ...body, branch: `sentinel/bump-${body.vulnerabilityId}`, targetVersion, prTitle: `chore(deps): bump to ${targetVersion} to fix ${body.advisoryId || body.vulnerabilityId}` } }];"
+      },
+      "name": "Prepare PR fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/repos/{{$json.repo || \"theNeuralHorizon/sentinel-demo\"}}/pulls",
+        "method": "POST",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "title", "value": "={{$json.prTitle}}" },
+            { "name": "head", "value": "={{$json.branch}}" },
+            { "name": "base", "value": "main" },
+            { "name": "body", "value": "Automated remediation by Sentinel.\\n\\nAdvisory: {{$json.advisoryId}}\\nReasoning: {{$json.reasoning}}" }
+          ]
+        }
+      },
+      "name": "GitHub Create PR",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"dispatched\", \"pr\": $json.html_url }"
+      },
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [860, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Prepare PR fields", "type": "main", "index": 0 }]] },
+    "Prepare PR fields": { "main": [[{ "node": "GitHub Create PR", "type": "main", "index": 0 }]] },
+    "GitHub Create PR": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" }
+}
