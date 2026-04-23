@@ -117,7 +117,7 @@ jobs:
       - name: Attest SBOM
         # Runs only on main branch pushes — attestations need contents:write.
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        uses: actions/attest-sbom@v1
+        uses: actions/attest-sbom@v4
         with:
           subject-path: sentinel-sbom.cdx.json
           sbom-path: sentinel-sbom.cdx.json
