@@ -1,0 +1,24 @@
+# CODEOWNERS — automatically requested for PR review.
+# https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-security/customizing-your-repository/about-code-owners
+
+# Default: entire repo
+*                           @theNeuralHorizon
+
+# Highest-leverage areas need a careful eye.
+/apps/api/                  @theNeuralHorizon
+/apps/scanner/              @theNeuralHorizon
+/apps/analyzer/             @theNeuralHorizon
+/packages/db/               @theNeuralHorizon
+/packages/ai/               @theNeuralHorizon
+
+# Security surface: migrations, auth, policy.
+/packages/db/migrations/    @theNeuralHorizon
+/apps/api/src/middleware/   @theNeuralHorizon
+/apps/api/src/routes/auth.ts @theNeuralHorizon
+/apps/api/src/routes/policy-eval.ts @theNeuralHorizon
+/SECURITY.md                @theNeuralHorizon
+/docs/AI_SECURITY.md        @theNeuralHorizon
+
+# Infra + CI gates
+/.github/workflows/         @theNeuralHorizon
+/infra/                     @theNeuralHorizon
