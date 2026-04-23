@@ -5,6 +5,7 @@
   import RiskMeter from "$lib/components/RiskMeter.svelte";
   import LiveFeed from "$lib/components/LiveFeed.svelte";
   import SeverityBadge from "$lib/components/SeverityBadge.svelte";
+  import AiSupplyChainCard from "$lib/components/AiSupplyChainCard.svelte";
 
   type Summary = Awaited<ReturnType<typeof api.summary>>;
   let summary = $state<Summary | null>(null);
@@ -65,6 +66,11 @@
     <StatCard label="Vulnerabilities" value={String(overall.total_vulns ?? 0)} accent />
   </section>
 
+  <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <AiSupplyChainCard byEcosystem={byEcosystem} />
+    <LiveFeed topics={["global"]} />
+  </section>
+
   <section class="grid grid-cols-1 lg:grid-cols-3 gap-4">
     <RiskMeter score={avgRisk} label="Avg project risk" />
     <div class="card p-4 flex flex-col gap-2 col-span-1 lg:col-span-2">
@@ -93,44 +99,40 @@
     </div>
   </section>
 
-  <section class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-    <div class="card p-4 lg:col-span-2">
-      <header class="flex items-center justify-between mb-3">
-        <span class="text-xs uppercase tracking-wider text-[var(--color-fg-subtle)]">Top risks</span>
-        <a href="/vulnerabilities" class="text-xs text-[var(--color-accent)] hover:underline">See all →</a>
-      </header>
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="text-left text-[var(--color-fg-subtle)] text-xs uppercase">
-            <th class="py-1">Advisory</th>
-            <th>Component</th>
-            <th>Sev</th>
-            <th class="text-right">Risk</th>
+  <section class="card p-4">
+    <header class="flex items-center justify-between mb-3">
+      <span class="text-xs uppercase tracking-wider text-[var(--color-fg-subtle)]">Top risks</span>
+      <a href="/vulnerabilities" class="text-xs text-[var(--color-accent)] hover:underline">See all →</a>
+    </header>
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-left text-[var(--color-fg-subtle)] text-xs uppercase">
+          <th class="py-1">Advisory</th>
+          <th>Component</th>
+          <th>Sev</th>
+          <th class="text-right">Risk</th>
+        </tr>
+      </thead>
+      <tbody>
+        {#each topRisks as v}
+          <tr class="border-t border-[var(--color-border)]">
+            <td class="py-2 font-mono text-[var(--color-accent)]">{v.advisoryId ?? "—"}</td>
+            <td class="truncate max-w-[200px]">
+              <span>{v.componentName}</span>
+              <span class="text-[var(--color-fg-subtle)]">@{v.componentVersion}</span>
+            </td>
+            <td><SeverityBadge severity={(v.severity ?? "info") as any} /></td>
+            <td class="text-right tabular-nums">{v.aiRiskScore ?? Math.round(Number(v.cvssScore ?? 0) * 10)}</td>
           </tr>
-        </thead>
-        <tbody>
-          {#each topRisks as v}
-            <tr class="border-t border-[var(--color-border)]">
-              <td class="py-2 font-mono text-[var(--color-accent)]">{v.advisoryId ?? "—"}</td>
-              <td class="truncate max-w-[200px]">
-                <span>{v.componentName}</span>
-                <span class="text-[var(--color-fg-subtle)]">@{v.componentVersion}</span>
-              </td>
-              <td><SeverityBadge severity={(v.severity ?? "info") as any} /></td>
-              <td class="text-right tabular-nums">{v.aiRiskScore ?? Math.round(Number(v.cvssScore ?? 0) * 10)}</td>
-            </tr>
-          {:else}
-            <tr>
-              <td colspan="4" class="py-8 text-center text-[var(--color-fg-muted)]">
-                No vulnerabilities yet — trigger a scan from Projects.
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-    </div>
-
-    <LiveFeed topics={["global"]} />
+        {:else}
+          <tr>
+            <td colspan="4" class="py-8 text-center text-[var(--color-fg-muted)]">
+              No vulnerabilities yet — trigger a scan from Projects.
+            </td>
+          </tr>
+        {/each}
+      </tbody>
+    </table>
   </section>
 
   <section class="card p-4">
