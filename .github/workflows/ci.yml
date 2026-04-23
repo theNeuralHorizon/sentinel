@@ -25,15 +25,15 @@ jobs:
 
       - name: Typecheck packages
         run: |
-          bun --cwd packages/shared x tsc --noEmit
-          bun --cwd packages/ai x tsc --noEmit
-          bun --cwd packages/db x tsc --noEmit
+          (cd packages/shared && bun x tsc --noEmit)
+          (cd packages/ai      && bun x tsc --noEmit)
+          (cd packages/db      && bun x tsc --noEmit)
 
       - name: Typecheck apps
         run: |
-          bun --cwd apps/api x tsc --noEmit
-          bun --cwd apps/analyzer x tsc --noEmit
-          bun --cwd apps/cli x tsc --noEmit
+          (cd apps/api      && bun x tsc --noEmit)
+          (cd apps/analyzer && bun x tsc --noEmit)
+          (cd apps/cli      && bun x tsc --noEmit)
 
   unit-tests-bun:
     name: Unit tests (Bun)

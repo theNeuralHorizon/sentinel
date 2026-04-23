@@ -23,6 +23,8 @@ func DefaultDetectors() []Detector {
 		&npmDetector{},
 		&pyPIDetector{},
 		&goModDetector{},
+		&cargoDetector{},
+		&mavenDetector{},
 		&mlModelDetector{},
 		&mcpDetector{},
 	}

@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS vulnerabilities (
 
   fixed_versions TEXT[] NOT NULL DEFAULT '{}',
   affected_ranges JSONB NOT NULL DEFAULT '[]'::jsonb,
-  references JSONB NOT NULL DEFAULT '[]'::jsonb,
+  reference_links JSONB NOT NULL DEFAULT '[]'::jsonb,
 
   state vuln_state NOT NULL DEFAULT 'open',
   suppressed_reason TEXT,

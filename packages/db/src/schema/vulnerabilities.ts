@@ -59,7 +59,9 @@ export const vulnerabilities = pgTable(
 
     fixedVersions: text("fixed_versions").array().default(sql`'{}'::text[]`).notNull(),
     affectedRanges: jsonb("affected_ranges").default(sql`'[]'::jsonb`).notNull(),
-    references: jsonb("references").default(sql`'[]'::jsonb`).notNull(),
+    // `references` is a reserved word in SQL, so we store in `reference_links`
+    // but keep the ergonomic `references` name in Drizzle result rows.
+    references: jsonb("reference_links").default(sql`'[]'::jsonb`).notNull(),
 
     state: vulnStateEnum("state").default("open").notNull(),
     suppressedReason: text("suppressed_reason"),
