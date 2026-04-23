@@ -1,0 +1,16 @@
+{
+  "_comment": "POST this to /v1/policies to auto-open PRs for direct medium+ vulns with a fix available. Paired with the pr_bump n8n workflow it makes patch management hands-off for the easy 80%.",
+  "slug": "auto-bump-direct-fixable",
+  "name": "Auto-bump direct dependencies when a fix exists",
+  "enabled": true,
+  "tags": ["auto-remediate", "patch-management"],
+  "rules": {
+    "conditions": [
+      { "field": "severity",     "op": "in",  "value": ["critical", "high", "medium"] },
+      { "field": "fixAvailable", "op": "eq",  "value": true },
+      { "field": "isTransitive", "op": "eq",  "value": false }
+    ],
+    "action": "remediate",
+    "remediationKind": "pr_bump"
+  }
+}

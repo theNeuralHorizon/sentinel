@@ -1,0 +1,31 @@
+{
+  "$schema": "https://raw.githubusercontent.com/theNeuralHorizon/sentinel/main/packages/shared/schemas/sentinel-ai.schema.json",
+  "_comment": "Drop this file at the root of any project to declare models, datasets, and other AI artifacts Sentinel should track as first-class supply chain components. CycloneDX 1.6 ML-BOM is derived from this.",
+
+  "models": [
+    {
+      "name": "meta-llama/Llama-3.3-70B-Instruct",
+      "version": "1.0",
+      "supplier": "Meta",
+      "license": "Llama-3.3-Community",
+      "sourceUrl": "https://huggingface.co/meta-llama/Llama-3.3-70B-Instruct"
+    },
+    {
+      "name": "bge-small-en-v1.5",
+      "version": "1.5",
+      "supplier": "BAAI",
+      "license": "MIT",
+      "sourceUrl": "https://huggingface.co/BAAI/bge-small-en-v1.5"
+    }
+  ],
+
+  "datasets": [
+    {
+      "name": "HuggingFaceH4/ultrachat_200k",
+      "version": "2024-02-29",
+      "supplier": "HuggingFaceH4",
+      "license": "MIT",
+      "sourceUrl": "https://huggingface.co/datasets/HuggingFaceH4/ultrachat_200k"
+    }
+  ]
+}

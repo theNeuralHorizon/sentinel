@@ -1,0 +1,20 @@
+{
+  "_comment": "Sentinel reads MCP server configs from .mcp.json, mcp.config.json, or .cursor/mcp.json. Each server becomes a tracked component.",
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "version": "0.8.0",
+      "env": { "GITHUB_TOKEN": "${GITHUB_TOKEN}" }
+    },
+    "postgres": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres", "${DATABASE_URL}"],
+      "version": "0.6.2"
+    },
+    "sentinel": {
+      "url": "https://sentinel.example.com/mcp",
+      "version": "0.1.0"
+    }
+  }
+}
