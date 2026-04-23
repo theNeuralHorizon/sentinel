@@ -1,15 +1,14 @@
 # syntax=docker/dockerfile:1.7
+# SvelteKit 5 dashboard build — adapter-node output served by Bun.
+
 FROM oven/bun:1.3-alpine AS build
 WORKDIR /app
-COPY package.json bun.lock* ./
-COPY tsconfig.json ./
+# Copy the whole workspace up front so bun install resolves every workspace:*
+# reference and lands devDeps (vite, svelte-check, …) in node_modules/.bin.
+COPY package.json bun.lock* tsconfig.json ./
 COPY packages/ ./packages/
-COPY apps/api/package.json ./apps/api/
-COPY apps/analyzer/package.json ./apps/analyzer/
-COPY apps/cli/package.json ./apps/cli/
-COPY apps/web/package.json ./apps/web/
-RUN bun install --no-save
-COPY apps/web ./apps/web
+COPY apps/ ./apps/
+RUN bun install
 ARG PUBLIC_API_URL=http://localhost:4000
 ARG PUBLIC_WS_URL=ws://localhost:4000/ws
 ENV VITE_PUBLIC_API_URL=$PUBLIC_API_URL

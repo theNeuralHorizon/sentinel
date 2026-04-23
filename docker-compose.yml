@@ -124,7 +124,8 @@ services:
       - n8n-data:/home/node/.n8n
       - ./infra/n8n/workflows:/workflows:ro
     ports:
-      - "5678:5678"
+      # Map host 5679 since another n8n instance often already binds 5678.
+      - "5679:5678"
     depends_on:
       postgres:
         condition: service_healthy

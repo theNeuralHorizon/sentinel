@@ -28,40 +28,71 @@ class MemoryLimiter implements Limiter {
   }
 }
 
+// Bun's Redis API has shifted shape over releases (constructor → factory →
+// bun.redis / bun:redis).  We try both known interfaces and, if neither works,
+// fall through to the memory limiter rather than 500ing every request.
 class RedisLimiter implements Limiter {
+  private readonly fallback = new MemoryLimiter();
+
   constructor(private readonly redisUrl: string) {}
 
   async consume(key: string, limit: number, windowSec: number) {
-    // Bun ships a native Redis-protocol client (Bun.redis).
-    // Using `Bun.redis` keeps this dependency-free.
-    // Fallback-safe when `Bun.redis` isn't available at runtime.
-    const bunAny = globalThis.Bun as unknown as {
-      redis?: new (url: string) => {
-        connect(): Promise<void>;
-        send(cmd: string, args: string[]): Promise<unknown>;
-        close?(): void;
-      };
-    };
-    if (!bunAny.redis) {
-      // Graceful degrade: allow everything rather than block the request path.
-      return { allowed: true, remaining: limit, resetAt: Date.now() + windowSec * 1000 };
-    }
-    const client = new bunAny.redis(this.redisUrl);
-    await client.connect();
     try {
+      const client = await openBunRedis(this.redisUrl);
+      if (!client) return this.fallback.consume(key, limit, windowSec);
+
       const raw = await client.send("INCR", [key]);
       const count = Number(raw);
       if (count === 1) {
         await client.send("EXPIRE", [key, String(windowSec)]);
       }
       const ttl = Number(await client.send("TTL", [key]));
+      client.close?.();
       return {
         allowed: count <= limit,
         remaining: Math.max(0, limit - count),
         resetAt: Date.now() + ttl * 1000,
       };
-    } finally {
-      client.close?.();
+    } catch {
+      return this.fallback.consume(key, limit, windowSec);
+    }
+  }
+}
+
+interface RedisLike {
+  send(cmd: string, args: string[]): Promise<unknown>;
+  close?(): void;
+}
+
+async function openBunRedis(url: string): Promise<RedisLike | null> {
+  const bunAny = globalThis.Bun as unknown as {
+    redis?:
+      | (new (url: string) => RedisLike & { connect?: () => Promise<void> })
+      | ((url: string) => RedisLike | Promise<RedisLike>);
+  };
+  const factory = bunAny.redis;
+  if (!factory) return null;
+  try {
+    const maybe = (factory as (url: string) => RedisLike | Promise<RedisLike>)(url);
+    const client = maybe instanceof Promise ? await maybe : maybe;
+    // Some Bun versions return a client that needs explicit connect().
+    const c = client as RedisLike & { connect?: () => Promise<void> };
+    if (typeof c.connect === "function") {
+      try {
+        await c.connect();
+      } catch {
+        // continue — most builds auto-connect on first send().
+      }
+    }
+    return client;
+  } catch {
+    try {
+      const Ctor = factory as new (url: string) => RedisLike & { connect?: () => Promise<void> };
+      const client = new Ctor(url);
+      if (typeof client.connect === "function") await client.connect();
+      return client;
+    } catch {
+      return null;
     }
   }
 }
