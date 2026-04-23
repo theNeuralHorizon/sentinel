@@ -22,35 +22,64 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "true"
+          # Community edition works on public repos without a licence.
+          GITLEAKS_NOTIFY_USER_LIST: "@${{ github.actor }}"
 
   trivy-fs:
     name: Filesystem scan (Trivy)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: aquasecurity/trivy-action@0.29.0
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
         with:
           scan-type: fs
           scan-ref: "."
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+          exit-code: "0"
           format: sarif
           output: trivy-fs.sarif
-      - uses: github/codeql-action/upload-sarif@v3
+      - name: Upload SARIF
         if: always()
-        with: { sarif_file: trivy-fs.sarif }
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
 
   osv-scanner:
     name: OSV Scanner (deps)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
-      - uses: google/osv-scanner-action/osv-scanner-action@v1.9.2
-        with: { scan-args: "-r ." }
+      - name: Install osv-scanner
+        run: |
+          curl -sSfL https://github.com/google/osv-scanner/releases/latest/download/osv-scanner_linux_amd64 \
+            -o /usr/local/bin/osv-scanner
+          chmod +x /usr/local/bin/osv-scanner
+          osv-scanner --version
+      - name: Run osv-scanner
+        # Exit 0 so a new CVE appearing overnight doesn't block PRs.
+        # Severe findings still surface in the job log and in the SARIF upload.
+        run: |
+          osv-scanner --recursive --skip-git --format sarif --output osv.sarif ./ || true
+      - name: Upload SARIF
+        if: always() && hashFiles('osv.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: osv.sarif
+          category: osv-scanner
 
   codeql:
-    name: CodeQL (JavaScript/TypeScript + Go)
+    name: CodeQL (${{ matrix.language }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     strategy:
       fail-fast: false
       matrix:
@@ -58,9 +87,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: github/codeql-action/init@v3
-        with: { languages: ${{ matrix.language }} }
+        with:
+          languages: ${{ matrix.language }}
       - uses: github/codeql-action/analyze@v3
-        with: { category: "/language:${{ matrix.language }}" }
+        with:
+          category: "/language:${{ matrix.language }}"
 
   sbom:
     name: Generate & attest SBOM
@@ -71,17 +102,22 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@v4
-      - name: Syft
+      - name: Generate SBOM with Syft
         uses: anchore/sbom-action@v0
         with:
           path: "."
           format: cyclonedx-json
           output-file: sentinel-sbom.cdx.json
-      - uses: actions/attest-sbom@v2
-        with:
-          subject-path: "."
-          sbom-path: sentinel-sbom.cdx.json
-      - uses: actions/upload-artifact@v4
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
         with:
           name: sentinel-sbom
           path: sentinel-sbom.cdx.json
+          retention-days: 90
+      - name: Attest SBOM
+        # Runs only on main branch pushes — attestations need contents:write.
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/attest-sbom@v1
+        with:
+          subject-path: sentinel-sbom.cdx.json
+          sbom-path: sentinel-sbom.cdx.json

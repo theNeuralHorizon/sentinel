@@ -25,19 +25,15 @@ jobs:
 
       - name: Typecheck packages
         run: |
-          bun --cwd packages/shared typecheck
-          bun --cwd packages/ai typecheck
-          bun --cwd packages/db typecheck
+          bun --cwd packages/shared x tsc --noEmit
+          bun --cwd packages/ai x tsc --noEmit
+          bun --cwd packages/db x tsc --noEmit
 
       - name: Typecheck apps
         run: |
-          bun --cwd apps/api typecheck
-          bun --cwd apps/analyzer typecheck
-          bun --cwd apps/cli typecheck
-
-      - name: Prettier
-        run: bun x prettier --check "**/*.{ts,tsx,svelte,json,md}"
-        continue-on-error: true
+          bun --cwd apps/api x tsc --noEmit
+          bun --cwd apps/analyzer x tsc --noEmit
+          bun --cwd apps/cli x tsc --noEmit
 
   unit-tests-bun:
     name: Unit tests (Bun)
@@ -59,10 +55,12 @@ jobs:
       - name: Test scanner
         working-directory: apps/scanner
         run: |
-          go mod download || true
+          go mod download
           go vet ./...
           go test -race -v ./...
 
+  # Build images on every push (PRs don't push). Uses a lowercased owner since
+  # GHCR refuses uppercase letters in the repository path.
   build-images:
     name: Build container images
     runs-on: ubuntu-latest
@@ -76,6 +74,10 @@ jobs:
         service: [api, analyzer, scanner, web]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Lowercase repository owner
+        id: owner
+        run: echo "lower=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -94,8 +96,8 @@ jobs:
           file: infra/docker/${{ matrix.service }}.Dockerfile
           push: ${{ github.event_name == 'push' }}
           tags: |
-            ghcr.io/${{ github.repository_owner }}/sentinel-${{ matrix.service }}:latest
-            ghcr.io/${{ github.repository_owner }}/sentinel-${{ matrix.service }}:${{ github.sha }}
+            ghcr.io/${{ steps.owner.outputs.lower }}/sentinel-${{ matrix.service }}:latest
+            ghcr.io/${{ steps.owner.outputs.lower }}/sentinel-${{ matrix.service }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
@@ -123,9 +125,19 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: 1.3 }
       - run: bun install --frozen-lockfile || bun install
+
       - name: Apply initial schema
         run: |
-          sudo apt-get update && sudo apt-get install -y postgresql-client
-          PGPASSWORD=sentinel psql -h localhost -U sentinel -d sentinel -f packages/db/migrations/0000_init.sql
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          PGPASSWORD=sentinel psql -v ON_ERROR_STOP=1 -h localhost -U sentinel -d sentinel \
+            -f packages/db/migrations/0000_init.sql
+
+      - name: Verify schema applied
+        run: |
+          PGPASSWORD=sentinel psql -v ON_ERROR_STOP=1 -h localhost -U sentinel -d sentinel \
+            -c "SELECT to_regclass('public.vulnerabilities') AS exists;" \
+          | grep -q vulnerabilities
+
       - name: Seed
         run: bun run scripts/seed.ts

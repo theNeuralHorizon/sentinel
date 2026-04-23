@@ -1,0 +1,31 @@
+name: New ecosystem detector
+description: Propose or contribute a detector for a package manager / model hub / AI artifact format.
+title: "[ecosystem] "
+labels: [ecosystem, good-first-issue]
+body:
+  - type: input
+    id: ecosystem
+    attributes:
+      label: Ecosystem name
+      placeholder: "rubygems, swift-packages, pytorch-hub, …"
+    validations: { required: true }
+
+  - type: input
+    id: purl-type
+    attributes:
+      label: Purl type
+      description: What `pkg:<type>/...` prefix does this use? See https://github.com/package-url/purl-spec
+    validations: { required: true }
+
+  - type: textarea
+    id: manifest-format
+    attributes:
+      label: Manifest format
+      description: Which file(s) do we parse? Any quirks (locks, multi-module, etc.)?
+    validations: { required: true }
+
+  - type: textarea
+    id: advisory-source
+    attributes:
+      label: Advisory source
+      description: Where do vulnerabilities for this ecosystem live? OSV, ecosystem-specific, etc.

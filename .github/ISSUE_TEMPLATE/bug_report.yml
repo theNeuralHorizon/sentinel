@@ -1,0 +1,53 @@
+name: Bug report
+description: Something in Sentinel isn't working as documented.
+title: "[bug] "
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please include as much detail as possible so we can reproduce the issue quickly.
+        **Security issues:** please do NOT file a public bug report. See [SECURITY.md](../blob/main/SECURITY.md).
+
+  - type: input
+    id: version
+    attributes:
+      label: Sentinel version
+      description: "Image tag, git sha, or `v0.1.0`"
+      placeholder: "v0.1.0"
+    validations: { required: true }
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - api
+        - scanner
+        - analyzer
+        - web
+        - cli
+        - docker-compose / Helm / k8s
+        - docs
+        - other
+    validations: { required: true }
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Include the command you ran, the response, and what you expected.
+    validations: { required: true }
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      render: shell
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Bun/Go versions, Docker version, deployment target.
+      render: yaml

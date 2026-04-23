@@ -22,6 +22,7 @@ import { remediationsRoute } from "./routes/remediations";
 import { policiesRoute } from "./routes/policies";
 import { metricsRoute } from "./routes/metrics";
 import { nlRoute } from "./routes/nl-query";
+import { policyEvalRoute } from "./routes/policy-eval";
 import { createAuthRoute } from "./routes/auth";
 import { jwtVerify } from "jose";
 
@@ -76,6 +77,7 @@ authed.route("/remediations", remediationsRoute);
 authed.route("/policies", policiesRoute);
 authed.route("/metrics", metricsRoute);
 authed.route("/nl", nlRoute);
+authed.route("/policy-eval", policyEvalRoute);
 app.route("/v1", authed);
 
 // WebSocket for real-time dashboard updates.

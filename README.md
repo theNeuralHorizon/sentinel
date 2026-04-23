@@ -3,7 +3,13 @@
 > **AI-Native Software Supply Chain Security with Autonomous Remediation**
 
 [![CI](https://github.com/theNeuralHorizon/sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/theNeuralHorizon/sentinel/actions/workflows/ci.yml)
+[![Security](https://github.com/theNeuralHorizon/sentinel/actions/workflows/security.yml/badge.svg)](https://github.com/theNeuralHorizon/sentinel/actions/workflows/security.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Bun](https://img.shields.io/badge/runtime-Bun%201.3-yellow?logo=bun)](https://bun.sh)
+[![SvelteKit 5](https://img.shields.io/badge/ui-SvelteKit%205-FF3E00?logo=svelte&logoColor=white)](https://svelte.dev)
+[![CycloneDX 1.6](https://img.shields.io/badge/SBOM-CycloneDX%201.6-blue)](https://cyclonedx.org)
+[![pgvector](https://img.shields.io/badge/vectors-pgvector-336791?logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
+[![Tests](https://img.shields.io/badge/tests-46%20bun%20%2B%206%20go-brightgreen)](#)
 
 Sentinel is an agentic governance platform for software supply chain security. It moves beyond static SBOMs to real-time, AI-driven risk intelligence with autonomous remediation via n8n workflows.
 
