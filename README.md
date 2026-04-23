@@ -89,7 +89,24 @@ bun x sentinel-cli scan ./my-project
 open http://localhost:5173
 ```
 
-See [docs/](docs/) for deep dives.
+## Documentation
+
+- [QUICKSTART](docs/QUICKSTART.md) — 5-minute local bring-up
+- [ARCHITECTURE](docs/ARCHITECTURE.md) — every service, every data flow
+- [API reference](docs/API.md)
+- [POLICIES](docs/POLICIES.md) — authoring declarative governance rules
+- [DEPLOYMENT](docs/DEPLOYMENT.md) — Kubernetes, Helm, hardening, backups, air-gapped
+- [AI_SECURITY](docs/AI_SECURITY.md) — OWASP LLM Top 10 coverage + threat model
+- [BENCHMARKS](docs/BENCHMARKS.md) — numbers, reproduction commands
+- [FAQ](docs/FAQ.md) — stack choices, ownership, compliance, perf
+- [RESEARCH](docs/RESEARCH.md) — the 2026 industry context driving this
+- [ROADMAP](docs/ROADMAP.md) — what's next, what's not planned
+- [DEMO](docs/DEMO.md) — 10-minute buyer walkthrough script
+- [CONTRIBUTING](CONTRIBUTING.md) · [SECURITY](SECURITY.md) · [CHANGELOG](CHANGELOG.md) · [CLAUDE.md](CLAUDE.md)
+
+## Status
+
+All services pass CI: lint + typecheck + 55 Bun tests + 8 Go tests + integration seed + 4-image container build matrix. Security workflow: gitleaks + Trivy FS + OSV-Scanner + CodeQL (Go + JS/TS) + SBOM attestation.
 
 ## License
 
