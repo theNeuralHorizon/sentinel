@@ -1,4 +1,7 @@
 #!/usr/bin/env bun
+// Make this a module so top-level `await` typechecks cleanly under tsc.
+export {};
+
 /**
  * Sentinel verification script — runs 18 assertions against a live stack and
  * prints a table. Exits non-zero on any failure. Use after `docker compose up`.

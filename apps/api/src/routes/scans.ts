@@ -57,6 +57,8 @@ scansRoute.post("/", zValidator("json", TriggerScanSchema), async (c) => {
       triggeredBy: input.triggeredBy,
       status: "running",
       startedAt: new Date(),
+      // Persist the requested workDir so the executor can read it back.
+      metadata: { workDir: input.workDir },
     })
     .returning();
   if (!scan) throw new Error("failed to create scan row");

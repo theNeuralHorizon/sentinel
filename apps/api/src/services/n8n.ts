@@ -11,8 +11,12 @@ export class N8nClient {
   constructor(private readonly cfg: N8nConfig) {}
 
   async triggerWebhook(workflow: string, payload: unknown): Promise<{ executionId: string }> {
-    const base = this.cfg.webhookBase ?? `${this.cfg.baseUrl.replace(/\/$/, "")}/webhook`;
-    const url = `${base.replace(/\/$/, "")}/${workflow}`;
+    // Treat empty string as "not configured" — `??` would keep "" and break
+    // the URL builder. Fall through to baseUrl/webhook in that case.
+    const configured = this.cfg.webhookBase && this.cfg.webhookBase.length > 0
+      ? this.cfg.webhookBase
+      : `${this.cfg.baseUrl.replace(/\/$/, "")}/webhook`;
+    const url = `${configured.replace(/\/$/, "")}/${workflow}`;
     const res = await fetch(url, {
       method: "POST",
       headers: {
