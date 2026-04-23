@@ -23,6 +23,7 @@ import { policiesRoute } from "./routes/policies";
 import { metricsRoute } from "./routes/metrics";
 import { nlRoute } from "./routes/nl-query";
 import { policyEvalRoute } from "./routes/policy-eval";
+import { createVersionRoute } from "./routes/version";
 import { createAuthRoute } from "./routes/auth";
 import { jwtVerify } from "jose";
 
@@ -57,6 +58,7 @@ app.use("*", createRateLimitMiddleware({ redisUrl: env.REDIS_URL, limit: env.API
 app.get("/", (c) => c.json({ service: "sentinel-api", version: "0.1.0" }));
 app.get("/healthz", (c) => c.json({ ok: true }));
 app.get("/readyz", (c) => c.json({ ready: true, wsClients: wsHub.size() }));
+app.route("/version", createVersionRoute());
 app.route("/v1/auth", createAuthRoute(env.API_JWT_SECRET));
 
 // Authenticated routes.
