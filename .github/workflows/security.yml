@@ -43,7 +43,7 @@ jobs:
           output: trivy-fs.sarif
       - name: Upload SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-fs.sarif
           category: trivy-fs
@@ -69,7 +69,7 @@ jobs:
           osv-scanner --recursive --skip-git --format sarif --output osv.sarif ./ || true
       - name: Upload SARIF
         if: always() && hashFiles('osv.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: osv.sarif
           category: osv-scanner
@@ -86,10 +86,10 @@ jobs:
         language: [javascript-typescript, go]
     steps:
       - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
 
