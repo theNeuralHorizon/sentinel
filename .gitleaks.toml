@@ -11,11 +11,14 @@ useDefault = true
 [allowlist]
 description = "Sentinel-specific false-positive patterns"
 
-# Allow-list paths that are documentation, tests, fixtures, lockfiles, or
-# schema exports — any string that looks secret-ish in these is explicitly
-# intentional.
+# Allow-list paths that are documentation, tests, fixtures, lockfiles,
+# schema exports, or the gitleaks config files themselves. Any string
+# that looks secret-ish in these is intentional; scanning them wastes
+# cycles and produces meta-leaks on the allowlist file itself.
 paths = [
   '''(^|/)\.env\.example$''',
+  '''(^|/)\.gitleaks\.toml$''',
+  '''(^|/)\.gitleaksignore$''',
   '''(^|/)docs/.*\.md$''',
   '''(^|/)README\.md$''',
   '''(^|/)CHANGELOG\.md$''',
@@ -28,10 +31,10 @@ paths = [
 ]
 
 # Allow-list regexes for common false-positive shapes we emit:
-#   - env-var fallbacks   : `foo: env.X ?? "..."`
-#   - Zod / TS enums      : `z.enum([...])`
+#   - env-var fallbacks  (foo=env.X fallback to empty)
+#   - Zod / TS enums
 #   - JWT algorithm literals
-#   - sentinel.* nats subjects
+#   - sentinel NATS subjects
 #   - OKLCH colour tokens
 #   - purl examples
 regexes = [
@@ -48,8 +51,8 @@ regexes = [
 # forever in the history. Dropped here rather than in .gitleaksignore so
 # the rationale stays with the config.
 commits = [
-  # b57cde7f - initial commit. Line 33 of apps/api/src/index.ts is
-  # `apiKey: env.N8N_API_KEY ?? ""`. The string is empty; the value is
-  # read from the environment at runtime.
+  # b57cde7f - initial commit, apps/api/src/index.ts line 33.
+  # The line reads an env var with an empty-string fallback; no actual
+  # secret is hard-coded.
   "b57cde7f6005bc63a19afef2853f9f8e9a8db80f",
 ]

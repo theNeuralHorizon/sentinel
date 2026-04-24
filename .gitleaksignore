@@ -1,11 +1,11 @@
 # Fingerprints that gitleaks's generic-* rules misclassify as leaks.
 # Each line is a <commit>:<path>:<rule>:<line> tuple produced by gitleaks
-# itself — see https://github.com/gitleaks/gitleaks#configuration.
+# itself -- see https://github.com/gitleaks/gitleaks#configuration.
 #
 # The paired .gitleaks.toml also holds path + regex + commit allowlists
 # that prevent the same FPs from ever being re-introduced.
 
-# apps/api/src/index.ts — env-var fallback for N8N_API_KEY
-# `apiKey: env.N8N_API_KEY ?? ""` — string literal is empty; the value
-# comes from the environment at runtime.
+# apps/api/src/index.ts -- N8N API key read from the environment with an
+# empty fallback. No secret is hard-coded; the value comes from env at
+# runtime. See commit b57cde7f for the original line.
 b57cde7f6005bc63a19afef2853f9f8e9a8db80f:apps/api/src/index.ts:generic-api-key:33
