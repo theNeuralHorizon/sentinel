@@ -83,3 +83,7 @@ embeddings-cache/
 *.spdx.json
 *.cdx.json
 sbom-output/
+
+# Vercel build artifacts (local `vercel build`)
+.vercel/
+apps/web/.vercel/
