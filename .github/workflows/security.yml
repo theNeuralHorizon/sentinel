@@ -7,6 +7,7 @@ on:
     branches: [main]
   schedule:
     - cron: "17 7 * * *"
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -25,6 +26,10 @@ jobs:
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "true"
           # Community edition works on public repos without a licence.
           GITLEAKS_NOTIFY_USER_LIST: "@${{ github.actor }}"
+          # Point at our config so known-FP patterns (env-var defaults,
+          # example purls, OKLCH tokens) are allowlisted. .gitleaksignore
+          # holds historical fingerprints that should not re-trigger.
+          GITLEAKS_CONFIG: ${{ github.workspace }}/.gitleaks.toml
 
   trivy-fs:
     name: Filesystem scan (Trivy)

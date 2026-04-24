@@ -1,0 +1,55 @@
+# Gitleaks configuration for Sentinel.
+# Extends the stock ruleset and layers an allowlist so env-var reads, Zod
+# schemas, and documentation examples don't trip the generic-* rules.
+#
+# Scanned on every push (default behaviour) and every schedule run
+# (.github/workflows/security.yml).
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Sentinel-specific false-positive patterns"
+
+# Allow-list paths that are documentation, tests, fixtures, lockfiles, or
+# schema exports — any string that looks secret-ish in these is explicitly
+# intentional.
+paths = [
+  '''(^|/)\.env\.example$''',
+  '''(^|/)docs/.*\.md$''',
+  '''(^|/)README\.md$''',
+  '''(^|/)CHANGELOG\.md$''',
+  '''(^|/)CLAUDE\.md$''',
+  '''(^|/)packages/shared/test/.*\.test\.ts$''',
+  '''(^|/)apps/.*/test/.*\.test\.ts$''',
+  '''(^|/)scripts/seed\.ts$''',
+  '''(^|/)packages/db/migrations/.*\.sql$''',
+  '''(^|/)bun\.lock$''',
+]
+
+# Allow-list regexes for common false-positive shapes we emit:
+#   - env-var fallbacks   : `foo: env.X ?? "..."`
+#   - Zod / TS enums      : `z.enum([...])`
+#   - JWT algorithm literals
+#   - sentinel.* nats subjects
+#   - OKLCH colour tokens
+#   - purl examples
+regexes = [
+  '''env\.[A-Z0-9_]+\s*\?\?\s*"[^"]*"''',
+  '''apiKey:\s*env\.[A-Z0-9_]+''',
+  '''(?i)placeholder\s*=\s*"[^"]{0,120}"''',
+  '''(?i)example\.(com|org|local)''',
+  '''sentinel\.(scan|vulnerability|component|remediation|policy|drift)\.[a-z_]+''',
+  '''oklch\([^)]+\)''',
+  '''pkg:[a-z0-9_-]+/[A-Za-z0-9@%/._-]+''',
+]
+
+# Commits / fingerprints that are known false-positives and would churn
+# forever in the history. Dropped here rather than in .gitleaksignore so
+# the rationale stays with the config.
+commits = [
+  # b57cde7f - initial commit. Line 33 of apps/api/src/index.ts is
+  # `apiKey: env.N8N_API_KEY ?? ""`. The string is empty; the value is
+  # read from the environment at runtime.
+  "b57cde7f6005bc63a19afef2853f9f8e9a8db80f",
+]
