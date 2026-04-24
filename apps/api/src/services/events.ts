@@ -21,11 +21,13 @@ export async function publishEvent(
   subject: string,
   payload: unknown,
 ): Promise<void> {
+  // Skip entirely if NATS isn't configured for this deploy. Events are
+  // best-effort by design — REST still serves, WS fan-out silently degrades.
+  if (!url || url.trim() === "") return;
   try {
     const nc = await getNats(url);
     nc.publish(subject, codec.encode(JSON.stringify(payload)));
   } catch (err) {
-    // Events are best-effort — never fail the HTTP path on publish errors.
     logger.warn({ err, subject }, "failed to publish event");
   }
 }
