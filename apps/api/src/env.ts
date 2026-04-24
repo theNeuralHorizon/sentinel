@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+// Known-insecure values that must NEVER appear in a production process.
+// We refuse to start if NODE_ENV=production and any of these land in the env.
+const INSECURE_JWT_SECRETS = new Set([
+  "change-me-in-prod-min-32-chars-abcdef",
+  "dev-secret-change-me-in-prod-1234567890",
+]);
+
 const EnvSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
@@ -10,9 +17,16 @@ const EnvSchema = z.object({
   API_JWT_EXPIRY: z.string().default("24h"),
   API_RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().default(120),
 
+  // Comma-separated list of origins allowed by CORS. When empty, the API
+  // locks down to none (prod-safe default). Set explicitly in prod to the
+  // Vercel domain + any custom hosts.
+  ALLOWED_ORIGINS: z.string().default(""),
+
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1),
-  NATS_URL: z.string().min(1),
+  // NATS is optional in production — the WS bridge degrades gracefully when
+  // the URL is blank (see services/events.ts).
+  NATS_URL: z.string().default(""),
 
   SCANNER_URL: z.string().url().default("http://localhost:4100"),
   ANALYZER_URL: z.string().url().default("http://localhost:4200"),
@@ -33,5 +47,43 @@ export function loadEnv(): Env {
     console.error("Invalid environment:", parsed.error.flatten().fieldErrors);
     process.exit(1);
   }
-  return parsed.data;
+  const env = parsed.data;
+
+  // Hard production checks. Refuse to boot with known-insecure defaults.
+  if (env.NODE_ENV === "production") {
+    if (INSECURE_JWT_SECRETS.has(env.API_JWT_SECRET)) {
+      console.error(
+        "refusing to start: API_JWT_SECRET is a known demo value. " +
+          "Generate one with: openssl rand -hex 32",
+      );
+      process.exit(1);
+    }
+    if (env.ALLOWED_ORIGINS.trim() === "") {
+      console.error(
+        "refusing to start: ALLOWED_ORIGINS must be set in production " +
+          "(comma-separated list of https://... origins)",
+      );
+      process.exit(1);
+    }
+  }
+
+  return env;
+}
+
+/** Parse ALLOWED_ORIGINS into a concrete list the Hono cors middleware accepts. */
+export function parseAllowedOrigins(raw: string, nodeEnv: string): string[] {
+  if (raw.trim() !== "") {
+    return raw.split(",").map((s) => s.trim()).filter(Boolean);
+  }
+  // Dev-only default: everything a local developer might use.
+  if (nodeEnv !== "production") {
+    return [
+      "http://localhost:5173",
+      "http://localhost:5174",
+      "http://localhost:3000",
+      "http://127.0.0.1:5173",
+      "http://127.0.0.1:5174",
+    ];
+  }
+  return [];
 }

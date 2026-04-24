@@ -1,0 +1,202 @@
+# Render Blueprint for Sentinel.
+# Deploy with: https://render.com/docs/blueprint-spec
+#   1. Push this file to main
+#   2. New → Blueprint → point at theNeuralHorizon/sentinel
+#   3. Render reads this file and provisions every resource below
+#
+# What this deploys on Render
+#   - sentinel-api       public web service (Docker, Bun + Hono)
+#   - sentinel-scanner   private web service (Docker, Go)
+#   - sentinel-analyzer  background worker   (Docker, Bun + Claude)
+#   - sentinel-n8n       public web service (official n8n image)
+#   - sentinel-postgres  managed Postgres 17 with pgvector extension
+#   - sentinel-kv        managed Key-Value (Redis protocol) for Dragonfly role
+#
+# Not on Render (deployed elsewhere)
+#   - web  → Vercel (see vercel.json)
+#   - NATS → optional; omit for single-region demo (API degrades to polling)
+
+services:
+  # -----------------------------------------------------------------
+  # API gateway — public HTTPS + WebSocket
+  # -----------------------------------------------------------------
+  - type: web
+    name: sentinel-api
+    runtime: docker
+    plan: starter
+    region: oregon
+    rootDir: .
+    dockerfilePath: infra/docker/api.Dockerfile
+    dockerContext: .
+    autoDeploy: true
+    healthCheckPath: /healthz
+    numInstances: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: API_PORT
+        value: "4000"
+      - key: API_RATE_LIMIT_PER_MIN
+        value: "120"
+      # JWT secret: required, must be 32+ bytes. Generated once by Render.
+      - key: API_JWT_SECRET
+        generateValue: true
+      # Origin allowlist. Set to the exact Vercel host + any custom domain.
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Scanner + analyzer internal URLs (Render private DNS).
+      - key: SCANNER_URL
+        fromService:
+          type: pserv
+          name: sentinel-scanner
+          property: hostport
+      - key: ANALYZER_URL
+        fromService:
+          type: pserv
+          name: sentinel-analyzer
+          property: hostport
+      # Postgres + Dragonfly-role KV from the managed resources below.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sentinel-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: sentinel-kv
+          property: connectionString
+      # n8n webhook base — resolved after both services are up.
+      - key: N8N_URL
+        fromService:
+          type: web
+          name: sentinel-n8n
+          property: host
+      - key: N8N_API_KEY
+        sync: false
+      # Optional: Anthropic API key. Absent ⇒ deterministic fallback risk engine.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+  # -----------------------------------------------------------------
+  # Scanner — private, only the API talks to it
+  # -----------------------------------------------------------------
+  - type: pserv
+    name: sentinel-scanner
+    runtime: docker
+    plan: starter
+    region: oregon
+    rootDir: .
+    dockerfilePath: infra/docker/scanner.Dockerfile
+    dockerContext: .
+    autoDeploy: true
+    envVars:
+      - key: SCANNER_HOST
+        value: 0.0.0.0
+      - key: SCANNER_PORT
+        value: "4100"
+      - key: LOG_LEVEL
+        value: info
+      - key: SCANNER_MAX_CONCURRENT
+        value: "8"
+
+  # -----------------------------------------------------------------
+  # Analyzer — background worker, no public port
+  # -----------------------------------------------------------------
+  - type: worker
+    name: sentinel-analyzer
+    runtime: docker
+    plan: starter
+    region: oregon
+    rootDir: .
+    dockerfilePath: infra/docker/analyzer.Dockerfile
+    dockerContext: .
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: ANALYZER_BATCH_SIZE
+        value: "10"
+      - key: ANALYZER_CONCURRENCY
+        value: "4"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sentinel-postgres
+          property: connectionString
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+  # -----------------------------------------------------------------
+  # n8n — public UI + webhook receiver
+  # -----------------------------------------------------------------
+  - type: web
+    name: sentinel-n8n
+    runtime: image
+    image:
+      url: docker.io/n8nio/n8n:latest
+    plan: starter
+    region: oregon
+    autoDeploy: false
+    healthCheckPath: /healthz
+    envVars:
+      - key: N8N_HOST
+        value: 0.0.0.0
+      - key: N8N_PORT
+        value: "5678"
+      - key: N8N_PROTOCOL
+        value: https
+      - key: NODE_ENV
+        value: production
+      - key: N8N_DIAGNOSTICS_ENABLED
+        value: "false"
+      - key: N8N_PERSONALIZATION_ENABLED
+        value: "false"
+      - key: DB_TYPE
+        value: postgresdb
+      - key: DB_POSTGRESDB_HOST
+        fromDatabase:
+          name: sentinel-postgres
+          property: host
+      - key: DB_POSTGRESDB_PORT
+        fromDatabase:
+          name: sentinel-postgres
+          property: port
+      - key: DB_POSTGRESDB_DATABASE
+        fromDatabase:
+          name: sentinel-postgres
+          property: database
+      - key: DB_POSTGRESDB_USER
+        fromDatabase:
+          name: sentinel-postgres
+          property: user
+      - key: DB_POSTGRESDB_PASSWORD
+        fromDatabase:
+          name: sentinel-postgres
+          property: password
+    disk:
+      name: n8n-data
+      mountPath: /home/node/.n8n
+      sizeGB: 1
+
+# ---------------------------------------------------------------------
+# Managed data services
+# ---------------------------------------------------------------------
+databases:
+  - name: sentinel-postgres
+    plan: starter
+    region: oregon
+    # Render Postgres supports the `vector` extension — enabled post-create by
+    # running: CREATE EXTENSION IF NOT EXISTS vector;  (baked into 0000_init.sql)
+    postgresMajorVersion: 17
+
+keyValue:
+  - name: sentinel-kv
+    plan: starter
+    region: oregon
+    ipAllowList: []      # private, cluster-only
+    maxmemoryPolicy: allkeys-lru

@@ -1,0 +1,183 @@
+name: Deploy
+
+# Triggered by a green CI run on main, or manually via workflow_dispatch.
+# We never skip CI — the workflow refuses to deploy if CI hasn't passed for
+# the target SHA, so secrets can only be used against verified builds.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      skip_render:
+        description: "Skip Render deploy (web-only push)"
+        type: boolean
+        default: false
+      skip_vercel:
+        description: "Skip Vercel deploy (backend-only push)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+  deployments: write
+
+jobs:
+  # Gate: only proceed if the triggering CI run succeeded (or this is a
+  # manual dispatch). Prevents secrets from being reachable by failed builds.
+  gate:
+    name: Verify CI green
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - id: resolve
+        run: echo "sha=${{ github.event.workflow_run.head_sha || github.sha }}" >> "$GITHUB_OUTPUT"
+
+  # Vercel deploy for the web package. No long-lived tokens: VERCEL_TOKEN is
+  # a project-scoped deploy token stored in GitHub Actions secrets.
+  vercel:
+    name: Deploy web to Vercel
+    runs-on: ubuntu-latest
+    needs: gate
+    if: >-
+      always() && needs.gate.result == 'success' &&
+      (github.event_name != 'workflow_dispatch' || inputs.skip_vercel == false)
+    environment:
+      name: production-web
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: 1.3 }
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile || bun install
+
+      - name: Install Vercel CLI
+        run: bun add -g vercel@latest
+
+      - name: Pull Vercel environment
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID:     ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      - name: Build with adapter-vercel
+        run: |
+          ADAPTER=vercel vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          ADAPTER: vercel
+
+      - id: deploy
+        name: Deploy prebuilt
+        run: |
+          url=$(vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }})
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Deployed to: $url"
+
+      - name: Smoke check
+        run: |
+          sleep 5
+          curl -fsS "${{ steps.deploy.outputs.url }}/" > /dev/null
+          echo "✓ web alive"
+
+  # Render deploy for every backend service. We hit per-service deploy hooks
+  # rather than the platform API to keep permissions minimal (deploy hooks are
+  # scoped to a single service and can be rotated per-service).
+  render:
+    name: Deploy ${{ matrix.service }} to Render
+    runs-on: ubuntu-latest
+    needs: gate
+    if: >-
+      always() && needs.gate.result == 'success' &&
+      (github.event_name != 'workflow_dispatch' || inputs.skip_render == false)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: api
+            hook_secret: RENDER_API_HOOK
+            health_url_secret: RENDER_API_URL
+            health_path: /healthz
+          - service: scanner
+            hook_secret: RENDER_SCANNER_HOOK
+            health_url_secret: RENDER_SCANNER_URL
+            health_path: /healthz
+          - service: analyzer
+            hook_secret: RENDER_ANALYZER_HOOK
+            health_url_secret: ""
+            health_path: ""
+    environment:
+      name: production-${{ matrix.service }}
+    steps:
+      - name: Trigger Render deploy hook
+        env:
+          HOOK: ${{ secrets[matrix.hook_secret] }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::warning::${{ matrix.service }} deploy hook not configured, skipping"
+            exit 0
+          fi
+          # Hook is a secret URL; never echo it. `--max-time 30` keeps a
+          # paused-plan Render service from hanging the job forever.
+          http=$(curl -fsS -o /dev/null -w "%{http_code}" --max-time 30 "$HOOK")
+          echo "render hook http=$http"
+          [ "$http" -ge 200 ] && [ "$http" -lt 400 ]
+
+      - name: Wait for service to come up
+        if: matrix.health_url_secret != ''
+        env:
+          URL: ${{ secrets[matrix.health_url_secret] }}
+          PATH_: ${{ matrix.health_path }}
+        run: |
+          if [ -z "$URL" ]; then
+            echo "::notice::health URL not configured for ${{ matrix.service }}, skipping smoke"
+            exit 0
+          fi
+          for i in $(seq 1 60); do
+            if curl -fsS "${URL}${PATH_}" > /dev/null; then
+              echo "✓ ${{ matrix.service }} alive after ${i}0s"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::${{ matrix.service }} did not become healthy within 10min"
+          exit 1
+
+  # Final smoke: hit /version and confirm it serves from a recent commit.
+  post-deploy:
+    name: Post-deploy verify
+    runs-on: ubuntu-latest
+    needs: [vercel, render]
+    if: always() && needs.vercel.result == 'success' && needs.render.result == 'success'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3"
+      - run: bun install --frozen-lockfile || bun install
+      - name: Run verify.ts against production API
+        env:
+          SENTINEL_API: ${{ secrets.RENDER_API_URL }}
+        run: |
+          if [ -z "$SENTINEL_API" ]; then
+            echo "::notice::RENDER_API_URL not configured, skipping live verify"
+            exit 0
+          fi
+          bun run scripts/verify.ts

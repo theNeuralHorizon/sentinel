@@ -600,6 +600,7 @@ Full detail in [docs/ROADMAP.md](docs/ROADMAP.md). Everything we deliberately ch
 | [API](docs/API.md) | Full REST + WebSocket reference |
 | [POLICIES](docs/POLICIES.md) | Authoring declarative governance rules |
 | [DEPLOYMENT](docs/DEPLOYMENT.md) | Kubernetes, Helm, hardening, backups, air-gapped |
+| [DEPLOY_VERCEL_RENDER](docs/DEPLOY_VERCEL_RENDER.md) | One-click public-cloud deploy via `render.yaml` + `vercel.json` |
 | [AI_SECURITY](docs/AI_SECURITY.md) | OWASP LLM Top-10 coverage + threat model |
 | [BENCHMARKS](docs/BENCHMARKS.md) | Numbers + reproduction commands |
 | [FAQ](docs/FAQ.md) | Stack choices, ownership, compliance, performance |

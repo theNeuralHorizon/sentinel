@@ -6,7 +6,7 @@ import { createBunWebSocket } from "hono/bun";
 import type { ServerWebSocket } from "bun";
 import { StringCodec, type NatsConnection } from "nats";
 
-import { loadEnv } from "./env";
+import { loadEnv, parseAllowedOrigins } from "./env";
 import { logger } from "./logger";
 import { createDb } from "@sentinel/db";
 import { createAuthMiddleware } from "./middleware/auth";
@@ -44,20 +44,16 @@ const app = new Hono();
 
 app.use("*", honoLogger((msg, ...rest) => logger.info({ rest }, msg)));
 app.use("*", secureHeaders());
+const allowedOrigins = parseAllowedOrigins(env.ALLOWED_ORIGINS, env.NODE_ENV);
 app.use(
   "*",
   cors({
-    origin: [
-      "http://localhost:5173",
-      "http://localhost:5174",
-      "http://localhost:3000",
-      "http://127.0.0.1:5173",
-      "http://127.0.0.1:5174",
-    ],
+    origin: allowedOrigins,
     credentials: true,
     allowHeaders: ["Authorization", "Content-Type"],
   }),
 );
+logger.info({ allowedOrigins }, "CORS allowlist loaded");
 app.use("*", createRateLimitMiddleware({ redisUrl: env.REDIS_URL, limit: env.API_RATE_LIMIT_PER_MIN }));
 
 // Unauthenticated routes.
@@ -140,7 +136,14 @@ app.get(
 );
 
 // Bridge NATS → WebSocket hub. Fire-and-forget; retried by NATS reconnect.
+// If NATS_URL is empty (single-region Render deploy without NATS), we skip
+// the bridge entirely — the UI still renders and API still serves, but the
+// live-activity feed falls back to polling.
 async function startNatsBridge(): Promise<void> {
+  if (!env.NATS_URL || env.NATS_URL.trim() === "") {
+    logger.warn("NATS_URL not set; real-time event bridge disabled (polling-only mode)");
+    return;
+  }
   try {
     const nc: NatsConnection = await getNats(env.NATS_URL);
     const sub = nc.subscribe("sentinel.>");
