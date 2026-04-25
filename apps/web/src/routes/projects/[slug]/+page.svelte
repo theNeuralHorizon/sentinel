@@ -5,12 +5,15 @@
   import SeverityBadge from "$lib/components/SeverityBadge.svelte";
   import LiveFeed from "$lib/components/LiveFeed.svelte";
 
-  const slug = $derived($page.params.slug);
+  // SvelteKit always populates a route param, but the type is technically
+  // string | undefined. Narrow once and bail otherwise.
+  const slug = $derived($page.params.slug ?? "");
   let project = $state<Record<string, unknown> | null>(null);
   let scans = $state<Array<Record<string, unknown>>>([]);
   let loading = $state(true);
 
   async function load(): Promise<void> {
+    if (!slug) return;
     loading = true;
     try {
       const [proj, scn] = await Promise.all([

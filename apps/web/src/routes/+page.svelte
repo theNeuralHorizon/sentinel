@@ -75,16 +75,6 @@
     </div>
   </header>
 
-  {#if error}
-    <div class="card p-4 border-[var(--color-danger)] flex items-center gap-3">
-      <span class="text-[var(--color-danger)]"><NavIcon name="shield-alert" size={16} /></span>
-      <div class="flex flex-col">
-        <span class="text-sm text-[var(--color-danger)]">API unreachable</span>
-        <span class="text-xs text-[var(--color-fg-subtle)] font-mono">{error}</span>
-      </div>
-    </div>
-  {/if}
-
   <!-- KPI row -->
   <section class="grid grid-cols-2 lg:grid-cols-4 gap-4">
     <StatCard label="Projects"        value={overall.projects ?? 0}         icon="folder"       sub="active" />

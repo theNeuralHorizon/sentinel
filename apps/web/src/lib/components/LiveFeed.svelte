@@ -4,7 +4,11 @@
   import NavIcon from "./NavIcon.svelte";
 
   let { topics = ["global"] }: { topics?: string[] } = $props();
-  const feed = createLiveFeed(topics);
+  // Snapshot once at mount — the feed subscribes during onDestroy-bound
+  // lifecycle and the underlying WS doesn't support changing topics
+  // mid-stream. Re-mount the component if you need different topics.
+  const initialTopics = topics;
+  const feed = createLiveFeed(initialTopics);
 
   function timeAgo(ts: number): string {
     const sec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
