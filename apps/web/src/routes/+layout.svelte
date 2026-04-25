@@ -9,19 +9,14 @@
 
   let { children } = $props();
 
-  let username = $state<string | null>(null);
-  let authState = $state<"loading" | "ready" | "error">("loading");
-
+  // Best-effort silent dev-login on first mount; the rest of the UI handles
+  // "no API yet" states locally per page.
   onMount(async () => {
     if (!browser) return;
     try {
-      if (!getToken()) {
-        await api.devLogin("analyst", "analyst");
-      }
-      username = "analyst";
-      authState = "ready";
+      if (!getToken()) await api.devLogin("analyst", "analyst");
     } catch {
-      authState = "error";
+      /* swallow — pages render their own empty/error states */
     }
   });
 
@@ -80,29 +75,9 @@
     <!-- Spacer -->
     <div class="flex-1"></div>
 
-    <!-- Status card -->
-    <div class="hairline rounded-[var(--radius-md)] p-3 flex flex-col gap-2 text-xs">
-      <div class="flex items-center gap-2">
-        {#if authState === "ready"}
-          <span class="pulse-dot"></span>
-          <span class="text-[var(--color-fg)]">Connected</span>
-        {:else if authState === "loading"}
-          <span class="h-2 w-2 rounded-full bg-[var(--color-fg-subtle)] animate-pulse"></span>
-          <span class="text-[var(--color-fg-muted)]">Authenticating…</span>
-        {:else}
-          <span class="h-2 w-2 rounded-full bg-[var(--color-danger)]"></span>
-          <span class="text-[var(--color-danger)]">API unreachable</span>
-        {/if}
-      </div>
-      {#if username}
-        <div class="text-[var(--color-fg-subtle)]">
-          Signed in as <span class="text-[var(--color-fg-muted)]">{username}</span>
-        </div>
-      {/if}
-      <div class="pt-1 border-t border-[var(--color-border)] text-[var(--color-fg-subtle)] flex items-center justify-between">
-        <span>v0.1.0</span>
-        <span class="font-mono">Claude Opus</span>
-      </div>
+    <!-- Version card -->
+    <div class="hairline rounded-[var(--radius-md)] px-3 py-2 text-xs text-[var(--color-fg-subtle)]">
+      <span class="font-mono">v0.1.0</span>
     </div>
   </aside>
 

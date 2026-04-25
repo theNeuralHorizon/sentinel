@@ -25,10 +25,26 @@ import { nlRoute } from "./routes/nl-query";
 import { policyEvalRoute } from "./routes/policy-eval";
 import { createVersionRoute } from "./routes/version";
 import { createAuthRoute } from "./routes/auth";
+import { createAdminRoute } from "./routes/admin";
 import { jwtVerify } from "jose";
+
+// Co-located analyzer: same risk-worker as the standalone analyzer service,
+// started in-process so a single Render free web service handles both.
+import { startRiskWorker } from "../../analyzer/src/risk-worker";
+import { bootstrapSchema } from "./services/bootstrap";
 
 const env = loadEnv();
 const db = createDb(env.DATABASE_URL);
+
+// Apply the schema (CREATE TABLE IF NOT EXISTS …) before any route can
+// hit the database. On a fresh Postgres this materialises everything;
+// on subsequent boots it's effectively a no-op.
+if (process.env.SKIP_BOOTSTRAP !== "1") {
+  await bootstrapSchema(db).catch((err) => {
+    logger.error({ err }, "bootstrap failed; refusing to start");
+    process.exit(1);
+  });
+}
 const scanner = new ScannerClient(env.SCANNER_URL);
 const n8n = new N8nClient({
   baseUrl: env.N8N_URL ?? "http://localhost:5678",
@@ -62,6 +78,15 @@ app.get("/healthz", (c) => c.json({ ok: true }));
 app.get("/readyz", (c) => c.json({ ready: true, wsClients: wsHub.size() }));
 app.route("/version", createVersionRoute());
 app.route("/v1/auth", createAuthRoute(env.API_JWT_SECRET));
+
+// Admin: token-gated. Used once after deploy to seed demo data via curl.
+const adminApp = new Hono();
+adminApp.use("*", async (c, next) => {
+  c.set("db" as never, db);
+  return next();
+});
+adminApp.route("/", createAdminRoute());
+app.route("/v1/admin", adminApp);
 
 // Authenticated routes.
 const authed = new Hono();
@@ -180,3 +205,19 @@ const server = Bun.serve({
 });
 
 logger.info({ url: `http://${server.hostname}:${server.port}` }, "sentinel-api listening");
+
+// Co-located analyzer worker: enrich vulnerabilities with risk scores +
+// remediations on a 3s tick. Set ANALYZER_DISABLED=1 to skip.
+if (process.env.ANALYZER_DISABLED !== "1") {
+  startRiskWorker({
+    db,
+    concurrency: Number(process.env.ANALYZER_CONCURRENCY ?? 4),
+    batchSize: Number(process.env.ANALYZER_BATCH_SIZE ?? 10),
+    intervalMs: 3000,
+    runLLM: Boolean(env.ANTHROPIC_API_KEY),
+  });
+  logger.info(
+    { runLLM: Boolean(env.ANTHROPIC_API_KEY) },
+    "analyzer worker started in-process",
+  );
+}
