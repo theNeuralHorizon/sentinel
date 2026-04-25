@@ -2,17 +2,11 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
   "framework": "sveltekit",
-  "buildCommand": "ADAPTER=vercel bun install && (cd apps/web && ADAPTER=vercel bun run build)",
   "installCommand": "bun install",
-  "outputDirectory": "apps/web/.svelte-kit/vercel-build",
-  "env": {
-    "ADAPTER": "vercel"
-  },
-  "build": {
-    "env": {
-      "ADAPTER": "vercel"
-    }
-  },
+  "buildCommand": "(cd apps/web && ADAPTER=vercel bun run build) && cp -r apps/web/.vercel .vercel",
+  "outputDirectory": ".vercel/output",
+  "env": { "ADAPTER": "vercel" },
+  "build": { "env": { "ADAPTER": "vercel" } },
   "headers": [
     {
       "source": "/(.*)",
@@ -27,9 +21,5 @@
       ]
     }
   ],
-  "git": {
-    "deploymentEnabled": {
-      "main": true
-    }
-  }
+  "git": { "deploymentEnabled": { "main": true } }
 }
