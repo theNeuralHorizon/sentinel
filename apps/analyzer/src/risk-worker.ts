@@ -66,6 +66,20 @@ export function startRiskWorker(cfg: WorkerConfig): () => void {
           await analyseOne({ cfg, driver, vulnerability, component });
         }),
       );
+
+      // Recompute scan-level risk_score ONCE per scan touched in this
+      // batch — not once per vulnerability. Yesterday's behaviour fired
+      // a full PERCENTILE_CONT subquery 40+ times per tick.
+      const touchedScans = [...new Set(rows.map((r) => r.vulnerability.scanId))];
+      if (touchedScans.length > 0) {
+        await cfg.db.execute(sql`
+          UPDATE scans s SET risk_score = COALESCE((
+            SELECT ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ai_risk_score))::int
+            FROM vulnerabilities WHERE scan_id = s.id
+          ), 0)
+          WHERE s.id = ANY(${touchedScans}::uuid[])
+        `);
+      }
     } catch (err) {
       logger.error({ err }, "risk worker tick failed");
     }
@@ -145,17 +159,10 @@ async function analyseOne({
     })
     .where(eq(schema.vulnerabilities.id, vulnerability.id));
 
-  // Recompute the scan's risk score.
-  await db.execute(sql`
-    UPDATE scans SET risk_score = (
-      SELECT COALESCE(ROUND(
-        PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ai_risk_score)
-      ), 0)
-      FROM vulnerabilities
-      WHERE scan_id = ${vulnerability.scanId}
-    )::int
-    WHERE id = ${vulnerability.scanId}
-  `);
+  // Scan-level risk_score is recomputed once per batch in tick(),
+  // not per vulnerability. With concurrency=4 and batchSize=10, that
+  // dropped from up to 40 redundant PERCENTILE_CONT subqueries down
+  // to one parameterised UPDATE.
 
   // Propose remediation if fix is available OR severity >= high.
   const shouldPropose =

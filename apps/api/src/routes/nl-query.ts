@@ -126,7 +126,13 @@ async function executePlan(
           purl: `pkg:search/${queryText}`,
         }),
       ]);
-      const literal = `[${vec!.join(",")}]`;
+      if (!vec || vec.length === 0) {
+        // Embedder unavailable — return an empty result rather than
+        // throw. The user got their plan back; the data plane just
+        // had nothing to compare.
+        return [];
+      }
+      const literal = `[${vec.join(",")}]`;
       return db.execute(sql`
         SELECT c.id, c.name, c.version, c.ecosystem, c.purl, c.license,
                1 - (c.embedding <=> ${literal}::vector) AS similarity

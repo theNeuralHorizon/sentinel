@@ -124,83 +124,84 @@ async function executeScan(args: {
     );
     const vectors = await embedder.embed(texts);
 
-    // Insert components.
-    const componentRows = await Promise.all(
-      result.components.map(async (c, idx) => {
-        const licenseRisk = classifyLicense(c.license);
-        const [row] = await db
-          .insert(schema.components)
-          .values({
-            scanId: scan.id,
-            projectId,
-            ecosystem: c.ecosystem,
-            name: c.name,
-            version: c.version,
-            purl: c.purl,
-            cpe: c.cpe ?? null,
-            supplier: c.supplier ?? null,
-            sourceUrl: c.sourceUrl ?? null,
-            license: c.license ?? null,
-            licenseConfidence: c.licenseConfidence ?? null,
-            licenseRisk,
-            isTransitive: c.isTransitive,
-            directDependents: c.directDependents,
-            hashSha256: c.hashSha256 ?? null,
-            embedding: vectors[idx] ?? null,
-          })
-          .returning();
-        return row;
-      }),
-    );
-    const componentByPurl = new Map(componentRows.filter(Boolean).map((r) => [r!.purl, r!]));
+    // Bulk insert components + vulnerabilities in a single transaction.
+    // Two round-trips total instead of `2N + 1` — important on Render's
+    // free Postgres tier where each query crosses a paid network hop.
+    const componentValues = result.components.map((c, idx) => ({
+      scanId: scan.id,
+      projectId,
+      ecosystem: c.ecosystem,
+      name: c.name,
+      version: c.version,
+      purl: c.purl,
+      cpe: c.cpe ?? null,
+      supplier: c.supplier ?? null,
+      sourceUrl: c.sourceUrl ?? null,
+      license: c.license ?? null,
+      licenseConfidence: c.licenseConfidence ?? null,
+      licenseRisk: classifyLicense(c.license),
+      isTransitive: c.isTransitive,
+      directDependents: c.directDependents,
+      hashSha256: c.hashSha256 ?? null,
+      embedding: vectors[idx] ?? null,
+    }));
 
-    // Insert vulnerabilities with baseline risk.
-    for (const { componentPurl, vuln } of result.vulnerabilities) {
-      const comp = componentByPurl.get(componentPurl);
-      if (!comp) continue;
-      const severity = vuln.severity as Severity;
-      const baselineRisk = computeBaselineRisk({
-        severity,
-        cvssScore: vuln.cvssScore ?? null,
-        epssScore: vuln.epssScore ?? null,
-        licenseRisk: classifyLicense(comp.license),
-        isTransitive: comp.isTransitive,
-        fixAvailable: vuln.fixedVersions.length > 0,
-      });
-      riskScores.push(baselineRisk);
-      switch (severity) {
-        case "critical":
-          criticalCount += 1;
-          break;
-        case "high":
-          highCount += 1;
-          break;
-        case "medium":
-          mediumCount += 1;
-          break;
-        case "low":
-          lowCount += 1;
-          break;
+    const { componentByPurl, vulnRows } = await db.transaction(async (tx) => {
+      const inserted =
+        componentValues.length > 0
+          ? await tx.insert(schema.components).values(componentValues).returning()
+          : [];
+      const byPurl = new Map(inserted.map((r) => [r.purl, r]));
+
+      const vulnValues: (typeof schema.vulnerabilities.$inferInsert)[] = [];
+      for (const { componentPurl, vuln } of result.vulnerabilities) {
+        const comp = byPurl.get(componentPurl);
+        if (!comp) continue;
+        const severity = vuln.severity as Severity;
+        const baselineRisk = computeBaselineRisk({
+          severity,
+          cvssScore: vuln.cvssScore ?? null,
+          epssScore: vuln.epssScore ?? null,
+          licenseRisk: classifyLicense(comp.license),
+          isTransitive: comp.isTransitive,
+          fixAvailable: vuln.fixedVersions.length > 0,
+        });
+        riskScores.push(baselineRisk);
+        switch (severity) {
+          case "critical": criticalCount++; break;
+          case "high":     highCount++;     break;
+          case "medium":   mediumCount++;   break;
+          case "low":      lowCount++;      break;
+        }
+        vulnValues.push({
+          componentId: comp.id,
+          scanId: scan.id,
+          advisoryId: vuln.advisoryId,
+          aliases: vuln.aliases,
+          summary: vuln.summary,
+          details: vuln.details ?? null,
+          severity,
+          cvssScore: vuln.cvssScore ?? null,
+          cvssVector: vuln.cvssVector ?? null,
+          epssScore: vuln.epssScore ?? null,
+          aiRiskScore: baselineRisk,
+          fixedVersions: vuln.fixedVersions,
+          affectedRanges: vuln.affectedRanges,
+          references: vuln.references,
+          publishedAt: vuln.publishedAt ? new Date(vuln.publishedAt) : null,
+          modifiedAt: vuln.modifiedAt ? new Date(vuln.modifiedAt) : null,
+        });
       }
-      await db.insert(schema.vulnerabilities).values({
-        componentId: comp.id,
-        scanId: scan.id,
-        advisoryId: vuln.advisoryId,
-        aliases: vuln.aliases,
-        summary: vuln.summary,
-        details: vuln.details ?? null,
-        severity,
-        cvssScore: vuln.cvssScore ?? null,
-        cvssVector: vuln.cvssVector ?? null,
-        epssScore: vuln.epssScore ?? null,
-        aiRiskScore: baselineRisk,
-        fixedVersions: vuln.fixedVersions,
-        affectedRanges: vuln.affectedRanges,
-        references: vuln.references,
-        publishedAt: vuln.publishedAt ? new Date(vuln.publishedAt) : null,
-        modifiedAt: vuln.modifiedAt ? new Date(vuln.modifiedAt) : null,
-      });
-    }
+
+      const inserted2 =
+        vulnValues.length > 0
+          ? await tx.insert(schema.vulnerabilities).values(vulnValues).returning({ id: schema.vulnerabilities.id })
+          : [];
+
+      return { componentByPurl: byPurl, vulnRows: inserted2 };
+    });
+    void componentByPurl; // kept in scope for future use (e.g. logging)
+    void vulnRows;
 
     const projectRisk = aggregateProjectRisk(riskScores);
     const [updated] = await db

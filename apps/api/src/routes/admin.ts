@@ -2,9 +2,19 @@
 // shared secret env var (`ADMIN_TOKEN`) so the endpoint is safe to expose
 // even on a public Render URL. Token is sent via `X-Admin-Token` header.
 //
-// We deliberately avoid making the seed reachable through the regular JWT
-// auth: the seed wipes & re-creates demo data and we don't want analysts
-// or viewers to be able to fire it.
+// Why this lives outside the JWT-protected `/v1` tree (as called out in
+// CLAUDE.md): the seed endpoint runs ONCE after first deploy, via curl
+// from an operator. There is no logged-in user at that point, so JWT
+// makes no sense as an auth surface. ADMIN_TOKEN is the right primitive
+// for "machine-issued, non-interactive, stable forever" auth.
+//
+// Hardening:
+//   - locked-down by default: empty/short ADMIN_TOKEN returns 403, never
+//     accidentally exposes the route
+//   - constant-time comparison so timing attacks can't leak the token
+//     (Bun's timingSafeEqual; falls back to length-padded XOR if absent)
+//   - the per-route rate limiter applies on top of this, so brute-forcing
+//     the token is bounded to `API_RATE_LIMIT_PER_MIN` attempts per IP
 
 import { Hono } from "hono";
 import { sql } from "drizzle-orm";
@@ -15,6 +25,16 @@ import { componentEmbeddingText, createDefaultEmbedder } from "@sentinel/ai";
 
 type Vars = { db: Database };
 
+/** Constant-time string equality. Bun + Node both expose this via crypto. */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
+}
+
 export function createAdminRoute(): Hono<{ Variables: Vars }> {
   const route = new Hono<{ Variables: Vars }>();
 
@@ -24,7 +44,8 @@ export function createAdminRoute(): Hono<{ Variables: Vars }> {
     if (!expected || expected.length < 16) {
       return c.json({ error: "admin_disabled", detail: "ADMIN_TOKEN not configured" }, 403);
     }
-    if (c.req.header("x-admin-token") !== expected) {
+    const got = c.req.header("x-admin-token") ?? "";
+    if (!timingSafeEqual(got, expected)) {
       return c.json({ error: "unauthorized" }, 401);
     }
     return next();

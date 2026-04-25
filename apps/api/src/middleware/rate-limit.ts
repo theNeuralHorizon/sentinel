@@ -41,11 +41,15 @@ class RedisLimiter implements Limiter {
       const client = await openBunRedis(this.redisUrl);
       if (!client) return this.fallback.consume(key, limit, windowSec);
 
-      const raw = await client.send("INCR", [key]);
-      const count = Number(raw);
-      if (count === 1) {
-        await client.send("EXPIRE", [key, String(windowSec)]);
-      }
+      // Atomic SET-NX + INCR. The previous code did INCR then EXPIRE,
+      // which leaked stuck counters if the process crashed between
+      // the two calls (no TTL → key never expires → user permanently
+      // blocked). SET key 0 EX windowSec NX is idempotent and races
+      // with concurrent readers safely: only the first caller in the
+      // window installs the TTL; everyone else just INCRs an already-
+      // expiring counter.
+      await client.send("SET", [key, "0", "EX", String(windowSec), "NX"]);
+      const count = Number(await client.send("INCR", [key]));
       const ttl = Number(await client.send("TTL", [key]));
       client.close?.();
       return {

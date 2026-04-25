@@ -31,7 +31,16 @@ searchRoute.post("/similar", zValidator("json", SimilaritySchema), async (c) => 
       purl: `pkg:search/${query}`,
     }),
   ]);
-  const vectorLiteral = `[${vec!.join(",")}]`;
+  if (!vec || vec.length === 0) {
+    // Embedder is misbehaving (e.g. external Voyage/OpenAI returned an
+    // empty array). Don't crash with "cannot read properties of undefined";
+    // surface a 503 so the caller can retry / fall back.
+    return c.json(
+      { error: "embedder_unavailable", detail: "embedder returned no vector" },
+      503,
+    );
+  }
+  const vectorLiteral = `[${vec.join(",")}]`;
 
   // Drizzle doesn't have first-class pgvector operators yet, so we express
   // the query with raw SQL. The `<=>` is cosine distance; lower = more similar.

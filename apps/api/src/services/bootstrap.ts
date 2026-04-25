@@ -40,9 +40,25 @@ function findMigration(): string {
  *   3. SET search_path = sentinel, public               (this connection only)
  *   4. Replay 0000_init.sql                             (table creates, indexes, enums)
  */
+// Postgres advisory-lock key. Anything int8-fitting works; we pick a
+// readable constant so it's obvious in pg_locks who owns it.
+const BOOTSTRAP_LOCK_KEY = 4242000000000001n;
+
 export async function bootstrapSchema(db: Database): Promise<void> {
   const path = findMigration();
   const migrationSql = readFileSync(path, "utf8");
+
+  // Acquire an advisory lock so a Render rolling deploy (multiple pods
+  // booting at the same time) can't race on CREATE EXTENSION / CREATE
+  // TYPE — those produce duplicate_object errors that crash boot
+  // even when wrapped in `IF NOT EXISTS` guards. The lock is released
+  // automatically when this connection ends; we also unlock explicitly.
+  try {
+    await db.execute(sql`SELECT pg_advisory_lock(${BOOTSTRAP_LOCK_KEY}::bigint)`);
+  } catch (err) {
+    logger.error({ err }, "bootstrap: failed to acquire advisory lock");
+    throw err;
+  }
 
   // Steps 1-3: the prelude ensures the next statements land in the
   // sentinel schema regardless of what the connection's default was.
@@ -62,5 +78,11 @@ export async function bootstrapSchema(db: Database): Promise<void> {
   } catch (err) {
     logger.error({ err }, "bootstrap: failed to apply migration");
     throw err;
+  } finally {
+    // Best-effort unlock; the lock dies with the connection anyway,
+    // so we don't let a failed unlock mask the real bootstrap result.
+    await db
+      .execute(sql`SELECT pg_advisory_unlock(${BOOTSTRAP_LOCK_KEY}::bigint)`)
+      .catch((err) => logger.warn({ err }, "bootstrap: advisory unlock failed"));
   }
 }
