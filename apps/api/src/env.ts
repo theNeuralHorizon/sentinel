@@ -7,6 +7,14 @@ const INSECURE_JWT_SECRETS = new Set([
   "dev-secret-change-me-in-prod-1234567890",
 ]);
 
+// `z.string().url()` rejects empty string. Render Blueprints declare optional
+// URL env vars with `value: ""` so the apply form doesn't prompt; this helper
+// accepts either a real URL or an empty string (which downstream code treats
+// as "feature disabled").
+function optionalUrl() {
+  return z.union([z.literal(""), z.string().url()]);
+}
+
 const EnvSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
@@ -28,12 +36,16 @@ const EnvSchema = z.object({
   // the URL is blank (see services/events.ts).
   NATS_URL: z.string().default(""),
 
-  SCANNER_URL: z.string().url().default("http://localhost:4100"),
-  ANALYZER_URL: z.string().url().default("http://localhost:4200"),
+  // URLs are validated only when non-empty so the Render Blueprint can
+  // declare them with `value: ""` (the operator fills them after services
+  // come up). An empty string keeps a feature disabled rather than crashing
+  // boot. Ditto for n8n + n8n webhook base.
+  SCANNER_URL: optionalUrl().default("http://localhost:4100"),
+  ANALYZER_URL: optionalUrl().default("http://localhost:4200"),
 
-  N8N_URL: z.string().url().optional(),
+  N8N_URL: optionalUrl().default(""),
   N8N_API_KEY: z.string().optional(),
-  N8N_WEBHOOK_BASE: z.string().url().optional(),
+  N8N_WEBHOOK_BASE: optionalUrl().default(""),
 
   // LLM provider selection. Auto-picks based on which key is present;
   // override here to force one explicitly (or "none" to skip the LLM).
