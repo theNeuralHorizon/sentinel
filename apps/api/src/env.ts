@@ -35,8 +35,16 @@ const EnvSchema = z.object({
   N8N_API_KEY: z.string().optional(),
   N8N_WEBHOOK_BASE: z.string().url().optional(),
 
+  // LLM provider selection. Auto-picks based on which key is present;
+  // override here to force one explicitly (or "none" to skip the LLM).
+  LLM_PROVIDER: z.enum(["anthropic", "gemini", "none", ""]).default(""),
+
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default("claude-opus-4-7"),
+
+  // Google Gemini (free tier). https://aistudio.google.com/apikey
+  GOOGLE_API_KEY: z.string().optional(),
+  GOOGLE_MODEL: z.string().default("gemini-2.0-flash"),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

@@ -1,7 +1,7 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "@sentinel/db";
 import { schema } from "@sentinel/db";
-import { analyzeRisk, proposeRemediation, createAiClient, DEFAULT_MODEL } from "@sentinel/ai";
+import { analyzeRisk, proposeRemediation, pickDriver, type LlmDriver } from "@sentinel/ai";
 import { logger } from "./logger";
 
 // The risk worker polls for vulnerabilities that haven't been AI-enriched yet
@@ -13,13 +13,27 @@ export interface WorkerConfig {
   concurrency: number;
   batchSize: number;
   intervalMs: number;
+  /** Honoured for backwards compatibility, but the driver itself is
+   *  picked from env (LLM_PROVIDER + matching key). When false, we pass
+   *  `null` and the worker uses the deterministic baseline. */
   runLLM: boolean;
 }
 
 export function startRiskWorker(cfg: WorkerConfig): () => void {
   let cancelled = false;
 
-  const client = cfg.runLLM ? createAiClient() : null;
+  // Resolve a driver lazily so a misconfigured key doesn't crash boot —
+  // the worker just falls back to the deterministic path.
+  let driver: LlmDriver | null = null;
+  if (cfg.runLLM) {
+    try {
+      driver = pickDriver();
+      if (driver.provider === "none") driver = null;
+    } catch (err) {
+      logger.warn({ err }, "LLM driver init failed; deterministic fallback only");
+      driver = null;
+    }
+  }
 
   async function tick(): Promise<void> {
     if (cancelled) return;
@@ -49,7 +63,7 @@ export function startRiskWorker(cfg: WorkerConfig): () => void {
 
       await Promise.all(
         rows.map(async ({ vulnerability, component }) => {
-          await analyseOne({ cfg, client, vulnerability, component });
+          await analyseOne({ cfg, driver, vulnerability, component });
         }),
       );
     } catch (err) {
@@ -73,12 +87,12 @@ export function startRiskWorker(cfg: WorkerConfig): () => void {
 
 async function analyseOne({
   cfg,
-  client,
+  driver,
   vulnerability,
   component,
 }: {
   cfg: WorkerConfig;
-  client: ReturnType<typeof createAiClient> | null;
+  driver: LlmDriver | null;
   vulnerability: typeof schema.vulnerabilities.$inferSelect;
   component: typeof schema.components.$inferSelect;
 }): Promise<void> {
@@ -89,7 +103,7 @@ async function analyseOne({
   let business_impact = "moderate";
   let reasoning: string;
 
-  if (client) {
+  if (driver) {
     try {
       const analysis = await analyzeRisk(
         {
@@ -107,7 +121,7 @@ async function analyseOne({
           isTransitive: component.isTransitive,
           fixedVersions: vulnerability.fixedVersions,
         },
-        { client, model: DEFAULT_MODEL },
+        { driver },
       );
       ai_risk_score = analysis.ai_risk_score;
       exploitability = analysis.exploitability;
@@ -152,7 +166,7 @@ async function analyseOne({
 
   try {
     let plan;
-    if (client) {
+    if (driver) {
       plan = await proposeRemediation(
         {
           advisoryId: vulnerability.advisoryId,
@@ -168,7 +182,7 @@ async function analyseOne({
           hasPagerDuty: true,
           hasIssueTracker: true,
         },
-        { client, model: DEFAULT_MODEL },
+        { driver },
       );
     } else {
       plan = {

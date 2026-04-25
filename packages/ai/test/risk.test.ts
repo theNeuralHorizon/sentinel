@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { extractJson } from "../src/risk";
+import { extractJson } from "../src/json";
 import { createHashEmbedder, componentEmbeddingText } from "../src/embeddings";
 
 describe("extractJson", () => {

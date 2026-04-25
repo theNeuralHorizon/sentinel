@@ -1,8 +1,6 @@
 import { z } from "zod";
-import Anthropic from "@anthropic-ai/sdk";
-import { createAiClient, DEFAULT_MODEL } from "./client";
+import { pickDriver, type LlmDriver } from "./providers";
 import { REMEDIATION_SYSTEM, buildRemediationUserPrompt } from "./prompts/remediation";
-import { extractJson } from "./risk";
 
 export const RemediationPlanSchema = z.object({
   kind: z.enum([
@@ -38,27 +36,13 @@ export interface RemediationInput {
 
 export async function proposeRemediation(
   input: RemediationInput,
-  options?: { client?: Anthropic; model?: string },
+  options?: { driver?: LlmDriver },
 ): Promise<RemediationPlan> {
-  const client = options?.client ?? createAiClient();
-  const model = options?.model ?? DEFAULT_MODEL;
-
-  const message = await client.messages.create({
-    model,
-    max_tokens: 1024,
-    system: [
-      {
-        type: "text",
-        text: REMEDIATION_SYSTEM,
-        cache_control: { type: "ephemeral" },
-      },
-    ],
-    messages: [{ role: "user", content: buildRemediationUserPrompt(input) }],
+  const driver = options?.driver ?? pickDriver();
+  return driver.call<RemediationPlan>({
+    systemPrompt: REMEDIATION_SYSTEM,
+    userPrompt: buildRemediationUserPrompt(input),
+    maxTokens: 1024,
+    schema: RemediationPlanSchema,
   });
-
-  const textBlock = message.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("no text block in remediation response");
-  }
-  return RemediationPlanSchema.parse(extractJson(textBlock.text));
 }

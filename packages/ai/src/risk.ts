@@ -1,10 +1,6 @@
 import { z } from "zod";
-import Anthropic from "@anthropic-ai/sdk";
-import { createAiClient, DEFAULT_MODEL } from "./client";
-import {
-  RISK_ANALYSIS_SYSTEM,
-  buildRiskAnalysisUserPrompt,
-} from "./prompts/risk-analysis";
+import { pickDriver, type LlmDriver } from "./providers";
+import { RISK_ANALYSIS_SYSTEM, buildRiskAnalysisUserPrompt } from "./prompts/risk-analysis";
 
 const RiskAnalysisResultSchema = z.object({
   ai_risk_score: z.number().int().min(0).max(100),
@@ -31,47 +27,21 @@ export interface RiskAnalysisInput {
   projectContext?: string;
 }
 
-// Extract the first valid JSON object from possibly-noisy LLM output.
-export function extractJson(raw: string): unknown {
-  const trimmed = raw.trim();
-  // Fast path — pure JSON.
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    // fall through
-  }
-  const start = trimmed.indexOf("{");
-  const end = trimmed.lastIndexOf("}");
-  if (start >= 0 && end > start) {
-    return JSON.parse(trimmed.slice(start, end + 1));
-  }
-  throw new Error(`no JSON object found in model output: ${raw.slice(0, 120)}...`);
-}
-
+/**
+ * AI-driven risk analysis. The driver argument is optional — if omitted,
+ * we pick one based on env: LLM_PROVIDER + the matching API key. When
+ * neither key is present, the driver throws LlmUnavailableError and the
+ * caller falls back to the deterministic baseline.
+ */
 export async function analyzeRisk(
   input: RiskAnalysisInput,
-  options?: { client?: Anthropic; model?: string },
+  options?: { driver?: LlmDriver },
 ): Promise<RiskAnalysisResult> {
-  const client = options?.client ?? createAiClient();
-  const model = options?.model ?? DEFAULT_MODEL;
-
-  const message = await client.messages.create({
-    model,
-    max_tokens: 1024,
-    system: [
-      {
-        type: "text",
-        text: RISK_ANALYSIS_SYSTEM,
-        cache_control: { type: "ephemeral" },
-      },
-    ],
-    messages: [{ role: "user", content: buildRiskAnalysisUserPrompt(input) }],
+  const driver = options?.driver ?? pickDriver();
+  return driver.call<RiskAnalysisResult>({
+    systemPrompt: RISK_ANALYSIS_SYSTEM,
+    userPrompt: buildRiskAnalysisUserPrompt(input),
+    maxTokens: 1024,
+    schema: RiskAnalysisResultSchema,
   });
-
-  const textBlock = message.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("no text block in risk analysis response");
-  }
-
-  return RiskAnalysisResultSchema.parse(extractJson(textBlock.text));
 }

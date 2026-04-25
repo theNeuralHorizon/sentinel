@@ -57,8 +57,16 @@ services:
       # also a manual sync_false.
       - key: REDIS_URL
         sync: false
-      # Optional. Without it, deterministic baseline risk scoring runs.
+      # ── LLM provider (all optional — deterministic baseline always works) ──
+      # "anthropic" / "gemini" / "none" / leave blank for auto-pick.
+      - key: LLM_PROVIDER
+        value: ""
+      # Anthropic (paid) — best quality. Optional.
       - key: ANTHROPIC_API_KEY
+        sync: false
+      # Google Gemini (free tier — recommended for students).
+      # Get a key at https://aistudio.google.com/apikey (no card required).
+      - key: GOOGLE_API_KEY
         sync: false
       # Token for the seed endpoint (POST /v1/admin/seed). Generate once
       # then call once to populate demo data.

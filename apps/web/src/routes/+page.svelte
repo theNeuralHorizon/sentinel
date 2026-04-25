@@ -11,17 +11,16 @@
   type Summary = Awaited<ReturnType<typeof api.summary>>;
   let summary = $state<Summary | null>(null);
   let loading = $state(true);
-  let error = $state<string | null>(null);
   let lastRefreshed = $state<number | null>(null);
 
   async function refresh(): Promise<void> {
     try {
       loading = true;
-      error = null;
       summary = await api.summary();
       lastRefreshed = Date.now();
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
+    } catch {
+      // API offline / not yet wired — leave previous summary in place
+      // and let the empty-zero state render naturally. No alarm bells.
     } finally {
       loading = false;
     }
