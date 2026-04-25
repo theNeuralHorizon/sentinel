@@ -26,6 +26,7 @@ import { policyEvalRoute } from "./routes/policy-eval";
 import { createVersionRoute } from "./routes/version";
 import { createAuthRoute } from "./routes/auth";
 import { createAdminRoute } from "./routes/admin";
+import { createDiagnosticsRoute } from "./routes/diagnostics";
 import { jwtVerify } from "jose";
 
 // Co-located analyzer: same risk-worker as the standalone analyzer service,
@@ -87,6 +88,17 @@ adminApp.use("*", async (c, next) => {
 });
 adminApp.route("/", createAdminRoute());
 app.route("/v1/admin", adminApp);
+
+// Diagnostics surface — public, but only exposes booleans + redacted
+// error messages. Hit GET /diag to see which dependency is broken.
+const diagApp = new Hono();
+diagApp.use("*", async (c, next) => {
+  c.set("db" as never, db);
+  c.set("scannerUrl" as never, env.SCANNER_URL);
+  return next();
+});
+diagApp.route("/", createDiagnosticsRoute());
+app.route("/diag", diagApp);
 
 // Authenticated routes.
 const authed = new Hono();
