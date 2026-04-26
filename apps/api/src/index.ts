@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import { logger as honoLogger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
@@ -37,14 +38,32 @@ import { bootstrapSchema } from "./services/bootstrap";
 const env = loadEnv();
 const db = createDb(env.DATABASE_URL);
 
-// Apply the schema (CREATE TABLE IF NOT EXISTS …) before any route can
-// hit the database. On a fresh Postgres this materialises everything;
-// on subsequent boots it's effectively a no-op.
-if (process.env.SKIP_BOOTSTRAP !== "1") {
-  await bootstrapSchema(db).catch((err) => {
-    logger.error({ err }, "bootstrap failed; refusing to start");
-    process.exit(1);
-  });
+// Boot state — flipped by the background bootstrap task. /readyz and
+// the /v1 middleware look at this; while it's false the API answers
+// /healthz only so Render's port-scanner sees the port bound.
+type BootState = { ready: boolean; error: string | null };
+const bootState: BootState = { ready: false, error: null };
+
+// Apply the schema (CREATE TABLE IF NOT EXISTS …) before any /v1 route
+// can hit the database. We DO NOT await this at the top level — that
+// would block Bun.serve from binding the port, and Render's port scanner
+// times out at 2 min. Instead we kick it off as a background promise
+// and gate /v1 routes behind `bootState.ready`.
+function startBootstrap(): void {
+  if (process.env.SKIP_BOOTSTRAP === "1") {
+    bootState.ready = true;
+    logger.info("SKIP_BOOTSTRAP=1; skipping schema bootstrap");
+    return;
+  }
+  bootstrapSchema(db)
+    .then(() => {
+      bootState.ready = true;
+      logger.info("bootstrap complete; /v1 routes online");
+    })
+    .catch((err) => {
+      bootState.error = err instanceof Error ? err.message : String(err);
+      logger.error({ err }, "bootstrap failed; /v1 routes will return 503");
+    });
 }
 const scanner = new ScannerClient(env.SCANNER_URL);
 const n8n = new N8nClient({
@@ -75,13 +94,37 @@ app.use("*", createRateLimitMiddleware({ redisUrl: env.REDIS_URL, limit: env.API
 
 // Unauthenticated routes.
 app.get("/", (c) => c.json({ service: "sentinel-api", version: "0.1.0" }));
+// /healthz: liveness — answers 200 the moment the port is bound, even
+// before the database bootstrap has run. Render's port scanner relies
+// on this happening within ~120s.
 app.get("/healthz", (c) => c.json({ ok: true }));
-app.get("/readyz", (c) => c.json({ ready: true, wsClients: wsHub.size() }));
+// /readyz: readiness — only 200 once the bootstrap promise has resolved.
+// If it never resolves, returns 503 with the captured error message.
+app.get("/readyz", (c) => {
+  if (bootState.ready) {
+    return c.json({ ready: true, wsClients: wsHub.size() });
+  }
+  return c.json({ ready: false, error: bootState.error }, 503);
+});
 app.route("/version", createVersionRoute());
 app.route("/v1/auth", createAuthRoute(env.API_JWT_SECRET));
 
+// Gate all DB-touching routes behind the bootstrap completion. While
+// bootstrap is in flight, /v1/* responds 503; healthz/readyz/diag stay
+// reachable so operators (and Render's port scanner) can see liveness.
+const requireReady: MiddlewareHandler = async (c, next) => {
+  if (!bootState.ready) {
+    return c.json(
+      { error: "bootstrapping", detail: bootState.error ?? "schema bootstrap in progress" },
+      503,
+    );
+  }
+  await next();
+};
+
 // Admin: token-gated. Used once after deploy to seed demo data via curl.
 const adminApp = new Hono();
+adminApp.use("*", requireReady);
 adminApp.use("*", async (c, next) => {
   c.set("db" as never, db);
   return next();
@@ -102,6 +145,7 @@ app.route("/diag", diagApp);
 
 // Authenticated routes.
 const authed = new Hono();
+authed.use("*", requireReady);
 authed.use("*", createAuthMiddleware(env.API_JWT_SECRET));
 authed.use("*", async (c, next) => {
   c.set("db" as never, db);
@@ -209,6 +253,11 @@ async function startNatsBridge(): Promise<void> {
 }
 startNatsBridge();
 
+// Bind the port FIRST. Render's port scanner has a hard 120s budget;
+// blocking on bootstrap before this line is what was causing the
+// scanner-timeout-then-OOM pattern in the deploy logs. Everything
+// below (bootstrap, NATS, analyzer) runs in the background while the
+// port stays bound and /healthz answers 200.
 const server = Bun.serve({
   port: env.API_PORT,
   hostname: env.API_HOST,
@@ -218,18 +267,34 @@ const server = Bun.serve({
 
 logger.info({ url: `http://${server.hostname}:${server.port}` }, "sentinel-api listening");
 
+// Kick off schema bootstrap in the background. /v1 routes return 503
+// until this resolves; /healthz keeps answering 200 throughout.
+startBootstrap();
+
 // Co-located analyzer worker: enrich vulnerabilities with risk scores +
-// remediations on a 3s tick. Set ANALYZER_DISABLED=1 to skip.
+// remediations on a 3s tick. Set ANALYZER_DISABLED=1 to skip. We defer
+// startup until the bootstrap promise has settled — starting it before
+// the schema exists would just spam errors into the logs.
 if (process.env.ANALYZER_DISABLED !== "1") {
-  startRiskWorker({
-    db,
-    concurrency: Number(process.env.ANALYZER_CONCURRENCY ?? 4),
-    batchSize: Number(process.env.ANALYZER_BATCH_SIZE ?? 10),
-    intervalMs: 3000,
-    runLLM: Boolean(env.ANTHROPIC_API_KEY),
-  });
-  logger.info(
-    { runLLM: Boolean(env.ANTHROPIC_API_KEY) },
-    "analyzer worker started in-process",
-  );
+  const waitThenStart = async () => {
+    while (!bootState.ready && bootState.error === null) {
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    if (bootState.error !== null) {
+      logger.warn({ error: bootState.error }, "analyzer not started; bootstrap failed");
+      return;
+    }
+    startRiskWorker({
+      db,
+      concurrency: Number(process.env.ANALYZER_CONCURRENCY ?? 4),
+      batchSize: Number(process.env.ANALYZER_BATCH_SIZE ?? 10),
+      intervalMs: 3000,
+      runLLM: Boolean(env.ANTHROPIC_API_KEY),
+    });
+    logger.info(
+      { runLLM: Boolean(env.ANTHROPIC_API_KEY) },
+      "analyzer worker started in-process",
+    );
+  };
+  void waitThenStart();
 }
