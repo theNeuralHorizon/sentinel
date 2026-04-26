@@ -44,28 +44,62 @@ function findMigration(): string {
 // readable constant so it's obvious in pg_locks who owns it.
 const BOOTSTRAP_LOCK_KEY = 4242000000000001n;
 
+/**
+ * Promise.race wrapper that rejects after `ms` if the wrapped promise
+ * hasn't settled. Drizzle / postgres-js silently swallows
+ * `connect_timeout` in some failure modes (TLS handshake stalled, pool
+ * exhausted, etc.), so we belt-and-braces it here. Every db call in
+ * bootstrap goes through this — if any step hangs, /readyz surfaces
+ * the timeout instead of returning ready=false forever.
+ */
+async function withTimeout<T>(label: string, ms: number, p: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`bootstrap step "${label}" timed out after ${ms}ms`)), ms);
+  });
+  try {
+    return await Promise.race([p, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export async function bootstrapSchema(db: Database): Promise<void> {
   logger.info("bootstrap: starting");
   const path = findMigration();
   const migrationSql = readFileSync(path, "utf8");
   logger.info({ migration: path, bytes: migrationSql.length }, "bootstrap: migration loaded");
 
-  // Per-statement guard: if the DB is unhealthy or sitting behind a
-  // long-running session, every DDL we issue dies in 60s instead of
-  // blocking the boot indefinitely. postgres-js opens a fresh session
-  // for each pool connection so this lives for the duration of the
-  // bootstrap call.
-  await db.execute(sql.raw(`SET statement_timeout = '60s'; SET lock_timeout = '5s';`));
+  // Connection probe. If the pool is dead / firewalled / TLS-stuck,
+  // this fails in 15s with a visible error rather than blocking the
+  // whole boot indefinitely. The previous deploy hung silently here
+  // (no log between "migration loaded" and the next step) — the
+  // explicit timeout ensures the failure surfaces in /readyz.
+  logger.info("bootstrap: probing DB connection (SELECT 1)");
+  await withTimeout("connect-probe", 15_000, db.execute(sql`SELECT 1 AS ok`));
+  logger.info("bootstrap: connection ok");
+
+  // Per-statement guard: if a DDL is contended, every statement we
+  // issue dies in 60s instead of blocking the boot indefinitely.
+  await withTimeout(
+    "set-timeouts",
+    10_000,
+    db.execute(sql.raw(`SET statement_timeout = '60s'; SET lock_timeout = '5s';`)),
+  );
   logger.info("bootstrap: timeouts configured (statement=60s lock=5s)");
 
   // Try for the advisory lock with a tight timeout. Free tier runs a
   // single instance (numInstances=1) so we never *need* the lock —
   // it was insurance against rolling deploys. If it can't be acquired
-  // in 5s (zombie session from a crashed prior boot, etc.) we proceed
-  // anyway: every DDL below is `IF NOT EXISTS` so re-running is safe.
+  // (zombie session from a prior crashed boot, etc.) we proceed: every
+  // DDL below is `IF NOT EXISTS` so re-running is safe.
   let haveLock = false;
   try {
-    await db.execute(sql`SELECT pg_advisory_lock(${BOOTSTRAP_LOCK_KEY}::bigint)`);
+    await withTimeout(
+      "advisory-lock",
+      8_000,
+      db.execute(sql`SELECT pg_advisory_lock(${BOOTSTRAP_LOCK_KEY}::bigint)`),
+    );
     haveLock = true;
     logger.info("bootstrap: advisory lock acquired");
   } catch (err) {
@@ -85,20 +119,20 @@ export async function bootstrapSchema(db: Database): Promise<void> {
 
   try {
     logger.info("bootstrap: applying prelude (schema + extensions)");
-    await db.execute(sql.raw(prelude));
+    await withTimeout("prelude", 30_000, db.execute(sql.raw(prelude)));
     logger.info("bootstrap: applying init migration (tables + indexes)");
-    await db.execute(sql.raw(migrationSql));
+    await withTimeout("init-migration", 90_000, db.execute(sql.raw(migrationSql)));
     logger.info({ migration: path }, "bootstrap: schema ready (sentinel)");
   } catch (err) {
     logger.error({ err }, "bootstrap: failed to apply migration");
     throw err;
   } finally {
     if (haveLock) {
-      // Best-effort unlock; the lock dies with the connection anyway,
-      // so we don't let a failed unlock mask the real bootstrap result.
-      await db
-        .execute(sql`SELECT pg_advisory_unlock(${BOOTSTRAP_LOCK_KEY}::bigint)`)
-        .catch((err) => logger.warn({ err }, "bootstrap: advisory unlock failed"));
+      await withTimeout(
+        "advisory-unlock",
+        5_000,
+        db.execute(sql`SELECT pg_advisory_unlock(${BOOTSTRAP_LOCK_KEY}::bigint)`),
+      ).catch((err) => logger.warn({ err }, "bootstrap: advisory unlock failed"));
     }
   }
 }
