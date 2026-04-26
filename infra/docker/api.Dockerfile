@@ -20,4 +20,7 @@ USER sentinel
 ENV NODE_ENV=production
 EXPOSE 4000
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["bun", "run", "apps/api/src/index.ts"]
+# `--smol` cuts Bun's heap-grow targets in half and tunes the GC for low-RAM
+# hosts. We need it for Render's free 512MB tier; on any larger plan you can
+# drop it for a small throughput win.
+CMD ["bun", "--smol", "run", "apps/api/src/index.ts"]
