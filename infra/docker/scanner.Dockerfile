@@ -7,7 +7,7 @@ COPY apps/scanner ./apps/scanner
 WORKDIR /src/apps/scanner
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/scanner ./cmd/scanner
 
-FROM alpine:3.20 AS runtime
+FROM alpine:3.23 AS runtime
 RUN apk add --no-cache ca-certificates tini && adduser -D -u 10001 sentinel
 WORKDIR /app
 COPY --from=build /out/scanner /app/scanner
