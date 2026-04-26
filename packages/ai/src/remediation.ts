@@ -38,7 +38,7 @@ export async function proposeRemediation(
   input: RemediationInput,
   options?: { driver?: LlmDriver },
 ): Promise<RemediationPlan> {
-  const driver = options?.driver ?? pickDriver();
+  const driver = options?.driver ?? (await pickDriver());
   return driver.call<RemediationPlan>({
     systemPrompt: REMEDIATION_SYSTEM,
     userPrompt: buildRemediationUserPrompt(input),

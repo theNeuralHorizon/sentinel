@@ -22,17 +22,21 @@ export interface WorkerConfig {
 export function startRiskWorker(cfg: WorkerConfig): () => void {
   let cancelled = false;
 
-  // Resolve a driver lazily so a misconfigured key doesn't crash boot —
-  // the worker just falls back to the deterministic path.
+  // Resolve the driver in the background. pickDriver() now returns a
+  // Promise (it dynamic-imports the active SDK on first call), so the
+  // worker fires up the loop immediately and switches to LLM mode once
+  // the SDK has loaded. A misconfigured key surfaces as a warning;
+  // the worker stays on the deterministic path.
   let driver: LlmDriver | null = null;
   if (cfg.runLLM) {
-    try {
-      driver = pickDriver();
-      if (driver.provider === "none") driver = null;
-    } catch (err) {
-      logger.warn({ err }, "LLM driver init failed; deterministic fallback only");
-      driver = null;
-    }
+    pickDriver()
+      .then((d) => {
+        driver = d.provider === "none" ? null : d;
+        if (driver) logger.info({ provider: driver.provider }, "LLM driver online");
+      })
+      .catch((err) => {
+        logger.warn({ err }, "LLM driver init failed; deterministic fallback only");
+      });
   }
 
   async function tick(): Promise<void> {

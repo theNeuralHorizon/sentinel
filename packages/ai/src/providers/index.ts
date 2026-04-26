@@ -4,10 +4,13 @@
 //  - "anthropic" — Claude via @anthropic-ai/sdk (best quality)
 //  - "gemini"    — Google Gemini via @google/generative-ai (free tier)
 //  - "none"      — short-circuits the LLM path (deterministic baseline only)
+//
+// Drivers are loaded lazily through dynamic import so neither SDK lands
+// in the cold-start working set when not needed. Render free tier is
+// 512MB; eagerly importing both SDKs added ~80MB to baseline and the
+// API was OOM-killed before Bun.serve could bind a port.
 
 import type { z } from "zod";
-import { createAnthropicDriver } from "./anthropic";
-import { createGeminiDriver } from "./gemini";
 
 export type LlmProvider = "anthropic" | "gemini" | "none";
 
@@ -34,31 +37,37 @@ const noneDriver: LlmDriver = {
 };
 
 /**
- * Pick the configured driver, considering env vars + explicit overrides.
- * Falls through to a stub `none` driver that throws — callers must handle
- * that and skip to deterministic baselines.
+ * Pick the configured driver. Returns a Promise because the active
+ * driver's SDK is loaded on first call — keeps cold-start memory tiny.
  *
- * Both SDKs are statically imported. Bun's bundler tree-shakes the
- * unreachable branch when only one provider is in scope; the cost of
- * loading both is ~80ms total at cold start, well under the threshold
- * where lazy-loading would matter.
+ * Falls through to a stub `none` driver that throws — callers must
+ * handle that and skip to deterministic baselines.
  */
-export function pickDriver(opts?: { override?: LlmProvider }): LlmDriver {
+export async function pickDriver(opts?: { override?: LlmProvider }): Promise<LlmDriver> {
   const explicit = (opts?.override ?? process.env.LLM_PROVIDER ?? "").toLowerCase();
   const hasAnthropic = !!process.env.ANTHROPIC_API_KEY;
   const hasGemini = !!process.env.GOOGLE_API_KEY;
 
   // Honour explicit choice if its credentials are present.
-  if (explicit === "anthropic" && hasAnthropic) return createAnthropicDriver();
-  if (explicit === "gemini" && hasGemini) return createGeminiDriver();
+  if (explicit === "anthropic" && hasAnthropic) return loadAnthropic();
+  if (explicit === "gemini" && hasGemini) return loadGemini();
   if (explicit === "none") return noneDriver;
 
   // Auto-pick. Gemini wins when both are set because it's the free
   // option we recommend; operators who set ANTHROPIC_API_KEY can
   // override via LLM_PROVIDER=anthropic.
-  if (hasGemini) return createGeminiDriver();
-  if (hasAnthropic) return createAnthropicDriver();
+  if (hasGemini) return loadGemini();
+  if (hasAnthropic) return loadAnthropic();
   return noneDriver;
+}
+
+async function loadAnthropic(): Promise<LlmDriver> {
+  const m = await import("./anthropic");
+  return m.createAnthropicDriver();
+}
+async function loadGemini(): Promise<LlmDriver> {
+  const m = await import("./gemini");
+  return m.createGeminiDriver();
 }
 
 export class LlmUnavailableError extends Error {

@@ -37,7 +37,7 @@ export async function analyzeRisk(
   input: RiskAnalysisInput,
   options?: { driver?: LlmDriver },
 ): Promise<RiskAnalysisResult> {
-  const driver = options?.driver ?? pickDriver();
+  const driver = options?.driver ?? (await pickDriver());
   return driver.call<RiskAnalysisResult>({
     systemPrompt: RISK_ANALYSIS_SYSTEM,
     userPrompt: buildRiskAnalysisUserPrompt(input),
